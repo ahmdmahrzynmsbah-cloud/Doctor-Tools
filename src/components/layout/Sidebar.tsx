@@ -8,11 +8,13 @@ import {
   LayoutDashboard,
   History,
   Settings,
-  LogOut
+  LogOut,
+  Download
 } from 'lucide-react';
 import { cn } from '@/src/utils/cn';
 import { useAuth } from '@/src/context/AuthContext';
 import { useAppData } from '@/src/context/AppDataContext';
+import { useInstallPrompt } from '@/src/hooks/useInstallPrompt';
 
 const navigation = [
   { name: 'لوحة التحكم', to: '/', icon: LayoutDashboard },
@@ -27,6 +29,7 @@ const navigation = [
 export default function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void }) {
   const { logout } = useAuth();
   const { businessProfile } = useAppData();
+  const { isInstallable, installApp } = useInstallPrompt();
   
   return (
     <aside className="w-64 bg-[#1A2332] text-[#F1F5F9] flex flex-col border-l border-[#243447] flex-shrink-0 h-screen print:hidden shadow-2xl md:shadow-none relative">
@@ -84,6 +87,15 @@ export default function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void 
             )}
           </NavLink>
         ))}
+        {isInstallable && (
+          <button
+            onClick={installApp}
+            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-3 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg transition-colors font-bold shadow-lg"
+          >
+            <Download className="w-5 h-5" />
+            تثبيت التطبيق 
+          </button>
+        )}
       </nav>
       <div className="p-4 border-t border-[#243447] bg-[#151C29] flex items-center justify-between">
         <div className="flex items-center gap-3">
