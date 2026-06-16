@@ -10,7 +10,7 @@ type InvoicePrintProps = {
 
 export default function InvoicePrint({ invoice, customer, inventory, profile }: InvoicePrintProps) {
   return (
-    <div className="hidden print:block bg-white text-black p-8 max-w-4xl mx-auto w-full" dir="rtl">
+    <div className="bg-white text-black p-8 max-w-4xl mx-auto w-[800px] min-h-[1000px] print:w-full print:min-h-0" dir="rtl">
       {/* Header */}
       <div className="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
         <div className="flex items-center gap-4">

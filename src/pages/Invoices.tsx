@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, FileText, X, Printer, Edit, Trash2, ListStart, List, Barcode, Receipt, Save } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Plus, Search, FileText, X, Printer, Edit, Trash2, ListStart, List, Barcode, Receipt, Save, Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { useAppData } from '@/src/context/AppDataContext';
 import InvoicePrint from '../components/InvoicePrint';
 
@@ -18,7 +19,7 @@ export default function Invoices() {
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [customerNameInput, setCustomerNameInput] = useState('');
   const [customerPhoneInput, setCustomerPhoneInput] = useState('');
-  const [invoiceItems, setInvoiceItems] = useState<{ inventoryId: string, qty: number }[]>([]);
+  const [invoiceItems, setInvoiceItems] = useState<{ inventoryId: string, qty: number, price: number }[]>([]);
   const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
   const [discountValue, setDiscountValue] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "deferred" | "partial">("cash");
@@ -30,7 +31,29 @@ export default function Invoices() {
 
   const [showDetailsAndPrices, setShowDetailsAndPrices] = useState(true);
   const [autoScannerActive, setAutoScannerActive] = useState(true);
-  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const downloadAsImage = async () => {
+    if (!printRef.current || !printingInvoice) return;
+    
+    try {
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = `invoice_${printingInvoice.invoiceNumber}.png`;
+      link.click();
+    } catch (err) {
+      console.error('Error downloading invoice:', err);
+      alert('حدث خطأ أثناء محاولة حفظ الفاتورة كصورة');
+    }
+  };
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
@@ -66,7 +89,7 @@ export default function Invoices() {
         if (existing) {
           setInvoiceItems(invoiceItems.map(i => i.inventoryId === item.id ? { ...i, qty: i.qty + 1 } : i));
         } else {
-          setInvoiceItems([...invoiceItems, { inventoryId: item.id, qty: 1 }]);
+          setInvoiceItems([...invoiceItems, { inventoryId: item.id, qty: 1, price: item.sellPrice }]);
         }
         setItemSearchText('');
         
@@ -83,11 +106,9 @@ export default function Invoices() {
   
   const subtotal = useMemo(() => {
     return invoiceItems.reduce((acc, item) => {
-      const invItem = getInventoryItem(item.inventoryId);
-      if (invItem) return acc + (invItem.sellPrice * item.qty);
-      return acc;
+      return acc + (item.price * item.qty);
     }, 0);
-  }, [invoiceItems, inventory]);
+  }, [invoiceItems]);
   
   const discountAmount = useMemo(() => {
     if (discountType === 'percentage') {
@@ -135,7 +156,7 @@ export default function Invoices() {
       setCustomerNameInput(c.name);
       setCustomerPhoneInput(c.phone);
     }
-    setInvoiceItems(inv.items.map(item => ({ inventoryId: item.itemId, qty: item.quantity })));
+    setInvoiceItems(inv.items.map(item => ({ inventoryId: item.itemId, qty: item.quantity, price: item.price })));
     setDiscountValue(0); // Optional: infer discount if we had it, but we didn't save it
     
     if (inv.paid >= inv.total) {
@@ -162,11 +183,13 @@ export default function Invoices() {
   };
 
   const handleAddItem = (itemId: string) => {
+    const item = getInventoryItem(itemId);
+    if (!item) return;
     const existing = invoiceItems.find(i => i.inventoryId === itemId);
     if (existing) {
       setInvoiceItems(invoiceItems.map(i => i.inventoryId === itemId ? { ...i, qty: i.qty + 1 } : i));
     } else {
-      setInvoiceItems([...invoiceItems, { inventoryId: itemId, qty: 1 }]);
+      setInvoiceItems([...invoiceItems, { inventoryId: itemId, qty: 1, price: item.sellPrice }]);
     }
     setItemSearchText('');
   };
@@ -215,7 +238,7 @@ export default function Invoices() {
     const mappedItems = invoiceItems.map(item => ({
       itemId: item.inventoryId,
       quantity: item.qty,
-      price: getInventoryItem(item.inventoryId)!.sellPrice
+      price: item.price
     }));
 
     if (editingInvoiceId && activeInvoice) {
@@ -259,24 +282,32 @@ export default function Invoices() {
   return (
     <>
       {printingInvoice && (
-        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
-          <div className="p-4 flex gap-4 justify-end border-b border-[#E2E8F0] print:hidden bg-[#F8FAFC]">
+        <div className="fixed inset-0 z-50 bg-[#F1F5F9] overflow-y-auto print:bg-white print:p-0">
+          <div className="p-4 flex gap-4 justify-center border-b border-[#E2E8F0] print:hidden bg-white shadow-sm sticky top-0 z-10">
             <button 
               onClick={() => {
                 setTimeout(() => window.print(), 100);
               }}
-              className="px-6 py-2 bg-[#2563EB] text-white rounded-lg font-bold hover:bg-[#1D4ED8]"
+              className="px-6 py-2 bg-[#2180B2] text-white rounded-lg font-bold hover:bg-[#1A6B94] flex items-center gap-2"
             >
-              طباعة الآن
+              <Printer className="w-5 h-5" />
+              طباعة الفاتورة
+            </button>
+            <button 
+              onClick={downloadAsImage}
+              className="px-6 py-2 bg-[#16A34A] text-white rounded-lg font-bold hover:bg-[#15803D] flex items-center gap-2"
+            >
+              <Download className="w-5 h-5" />
+              تنزيل كصورة
             </button>
             <button 
               onClick={() => setPrintingInvoiceId(null)}
-              className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg font-bold hover:bg-gray-300"
+              className="px-6 py-2 bg-[#F1F5F9] text-[#475569] rounded-lg font-bold hover:bg-[#E2E8F0]"
             >
               عودة
             </button>
           </div>
-          <div className="p-8">
+          <div className="p-8 flex justify-center print:p-0" ref={printRef}>
             <InvoicePrint 
               invoice={printingInvoice} 
               customer={printingCustomer} 
@@ -504,14 +535,30 @@ export default function Invoices() {
                           {invoiceItems.map((item, idx) => {
                             const invItem = getInventoryItem(item.inventoryId);
                             if (!invItem) return null;
-                            const qtyTotal = invItem.sellPrice * item.qty;
+                            const qtyTotal = item.price * item.qty;
                             return (
                               <tr key={idx} className="hover:bg-[#F8FAFC] transition-colors">
                                 <td className="py-3 px-4">
                                   <p className="font-bold text-[#1E293B]">{invItem.name}</p>
                                   {showDetailsAndPrices && <p className="text-xs text-[#94A3B8]">كود: {invItem.code}</p>}
                                 </td>
-                                {showDetailsAndPrices && <td className="py-3 px-4 font-bold text-[#475569]">{invItem.sellPrice.toLocaleString()}</td>}
+                                {showDetailsAndPrices && (
+                                  <td className="py-3 px-4">
+                                    <input 
+                                      type="number" min="0" required
+                                      value={item.price}
+                                      onChange={e => {
+                                        const val = Number(e.target.value);
+                                        if (val >= 0) {
+                                          const newItems = [...invoiceItems];
+                                          newItems[idx].price = val;
+                                          setInvoiceItems(newItems);
+                                        }
+                                      }}
+                                      className="w-24 border border-[#E2E8F0] rounded-lg px-2 py-1 text-center font-bold focus:ring-2 focus:ring-[#2180B2] focus:outline-none"
+                                    />
+                                  </td>
+                                )}
                                 <td className="py-3 px-4">
                                   <input 
                                     type="number" min="1" required
