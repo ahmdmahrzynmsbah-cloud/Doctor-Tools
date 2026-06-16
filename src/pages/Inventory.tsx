@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Filter, Search, Edit, Trash2, X, PackageOpen, LayoutGrid, Eye, Printer, MapPin } from 'lucide-react';
 import { useAppData, InventoryItem } from '@/src/context/AppDataContext';
+import Barcode from 'react-barcode';
 
 export default function Inventory() {
   const { inventory, categories, addInventoryItem, updateInventoryItem, deleteInventoryItem, addCategory, removeCategory } = useAppData();
@@ -10,6 +11,8 @@ export default function Inventory() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [viewingItem, setViewingItem] = useState<InventoryItem | null>(null);
+  const [printingBarcodeItem, setPrintingBarcodeItem] = useState<InventoryItem | null>(null);
   
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [formData, setFormData] = useState({
@@ -18,6 +21,24 @@ export default function Inventory() {
 
   const [newCatName, setNewCatName] = useState('');
 
+  useEffect(() => {
+    if (printingBarcodeItem) {
+      const handleAfterPrint = () => {
+        setPrintingBarcodeItem(null);
+      };
+      window.addEventListener('afterprint', handleAfterPrint);
+      
+      const timer = setTimeout(() => {
+        window.print();
+      }, 500);
+      
+      return () => {
+        window.removeEventListener('afterprint', handleAfterPrint);
+        clearTimeout(timer);
+      };
+    }
+  }, [printingBarcodeItem]);
+
   const filteredInventory = useMemo(() => {
     return inventory.filter(item => 
       (selectedCategory === 'الكل' || item.category === selectedCategory) &&
@@ -25,11 +46,16 @@ export default function Inventory() {
     );
   }, [inventory, searchTerm, selectedCategory]);
 
+  const generateAutoCode = () => {
+    return Math.floor(Math.random() * 899999999999 + 100000000000).toString();
+  };
+
   const openAdd = () => {
     setEditingItem(null);
-    setFormData({ code: '', name: '', brand: '', compatibleCars: '', category: categories[0] || '', storageLocation: '', quantity: 0, purchasePrice: 0, sellPrice: 0 });
+    setFormData({ code: generateAutoCode(), name: '', brand: '', compatibleCars: '', category: categories[0] || '', storageLocation: '', quantity: 0, purchasePrice: 0, sellPrice: 0 });
     setIsModalOpen(true);
   };
+
 
   const openEdit = (item: InventoryItem) => {
     setEditingItem(item);
@@ -180,8 +206,8 @@ export default function Inventory() {
                     </td>
                     <td className="px-6 py-4 text-center">
                        <div className="flex justify-center items-center gap-3 text-[#94A3B8]">
-                         <button className="hover:text-[#2180B2] transition-colors cursor-pointer bg-transparent border-none" title="عرض"><Eye className="w-5 h-5"/></button>
-                         <button className="hover:text-[#2180B2] transition-colors cursor-pointer bg-transparent border-none" title="طباعة باركود"><Printer className="w-5 h-5"/></button>
+                         <button onClick={() => setViewingItem(item)} className="hover:text-[#2180B2] transition-colors cursor-pointer bg-transparent border-none" title="عرض"><Eye className="w-5 h-5"/></button>
+                         <button onClick={() => setPrintingBarcodeItem(item)} className="hover:text-[#2180B2] transition-colors cursor-pointer bg-transparent border-none" title="طباعة باركود"><Printer className="w-5 h-5"/></button>
                          <button onClick={() => openEdit(item)} className="hover:text-[#2180B2] transition-colors cursor-pointer bg-transparent border-none" title="تعديل"><Edit className="w-5 h-5"/></button>
                          <button onClick={() => deleteInventoryItem(item.id)} className="hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none" title="حذف"><Trash2 className="w-5 h-5"/></button>
                        </div>
@@ -208,50 +234,50 @@ export default function Inventory() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
-              <div className="grid grid-cols-2 gap-5">
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">رمز الباركود / الكود</label>
                   <input required type="text" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-[#F8FAFC]" dir="ltr" />
                 </div>
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">الكمية الحالية</label>
                   <input required type="number" min="0" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
 
-                <div className="col-span-2 space-y-1">
+                <div className="sm:col-span-2 space-y-1">
                   <label className="text-sm font-bold text-[#475569]">اسم القطعة</label>
                   <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
                 
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">الماركة</label>
                   <input type="text" value={formData.brand} onChange={e => setFormData({...formData, brand: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">السيارات المتوافقة</label>
                   <input type="text" value={formData.compatibleCars} onChange={e => setFormData({...formData, compatibleCars: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
 
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">التصنيف (الفئة)</label>
                   <select required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-white">
                     <option value="">-- اختر الفئة --</option>
                     {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
-                <div className="col-span-2 sm:col-span-1 space-y-1">
+                <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">مكان التخزين (الرف)</label>
                   <input type="text" value={formData.storageLocation} onChange={e => setFormData({...formData, storageLocation: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
 
-                <div className="col-span-2 sm:col-span-1 space-y-1 p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
+                <div className="space-y-1 p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
                   <label className="text-sm font-bold text-[#475569]">سعر الشراء</label>
                   <div className="flex items-center gap-2 mt-1">
                     <input required type="number" min="0" value={formData.purchasePrice} onChange={e => setFormData({...formData, purchasePrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none" />
                     <span className="text-xs font-bold text-[#94A3B8]">ج.م</span>
                   </div>
                 </div>
-                <div className="col-span-2 sm:col-span-1 space-y-1 p-3 bg-[#F0FDF4] rounded-xl border border-[#BBF7D0]">
+                <div className="space-y-1 p-3 bg-[#F0FDF4] rounded-xl border border-[#BBF7D0]">
                   <label className="text-sm font-bold text-[#16A34A]">سعر البيع</label>
                   <div className="flex items-center gap-2 mt-1">
                     <input required type="number" min="0" value={formData.sellPrice} onChange={e => setFormData({...formData, sellPrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none font-bold" />
@@ -321,6 +347,106 @@ export default function Inventory() {
                </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Viewing Item Modal */}
+      {viewingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4 print:hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="text-lg font-bold text-[#1E293B] flex items-center gap-2">
+                <PackageOpen className="w-5 h-5 text-[#2180B2]" />
+                تفاصيل المنتج
+              </h3>
+              <button onClick={() => setViewingItem(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="flex flex-col items-center justify-center p-4 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] overflow-hidden">
+                 <Barcode value={viewingItem.code} width={1.8} height={60} displayValue={true} />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">اسم القطعة</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.name}</p>
+                 </div>
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">الماركة</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.brand || '-'}</p>
+                 </div>
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">السيارات المتوافقة</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.compatibleCars || '-'}</p>
+                 </div>
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">التصنيف</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.category}</p>
+                 </div>
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">مكان التخزين</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.storageLocation || '-'}</p>
+                 </div>
+                 <div>
+                   <p className="text-[#94A3B8] font-bold mb-1">الكمية الحالية</p>
+                   <p className={"font-bold " + (viewingItem.quantity > 0 ? "text-[#16A34A]" : "text-[#DC2626]")}>{viewingItem.quantity} قطعة</p>
+                 </div>
+                 <div className="p-3 bg-[#EEF2FF] rounded-lg border border-[#E0E7FF]">
+                   <p className="text-[#4F46E5] font-bold mb-1 text-xs">سعر الشراء</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.purchasePrice} ج.م</p>
+                 </div>
+                 <div className="p-3 bg-[#F0FDF4] rounded-lg border border-[#BBF7D0]">
+                   <p className="text-[#16A34A] font-bold mb-1 text-xs">سعر البيع</p>
+                   <p className="font-bold text-[#1E293B]">{viewingItem.sellPrice} ج.م</p>
+                 </div>
+              </div>
+              
+              <div className="pt-2 flex justify-center gap-3">
+                 <button onClick={() => { setViewingItem(null); setPrintingBarcodeItem(viewingItem); }} className="flex items-center gap-2 px-6 py-2.5 bg-[#F1F5F9] text-[#475569] rounded-xl hover:bg-[#E2E8F0] font-bold text-sm transition-colors border-none cursor-pointer">
+                   <Printer className="w-4 h-4" /> طباعة الباركود
+                 </button>
+                 <button onClick={() => { setViewingItem(null); openEdit(viewingItem); }} className="flex items-center gap-2 px-6 py-2.5 bg-[#2180B2] text-white rounded-xl hover:bg-[#1A6B94] font-bold text-sm transition-colors border-none cursor-pointer">
+                   <Edit className="w-4 h-4" /> تعديل المنتج
+                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Barcode View */}
+      {printingBarcodeItem && (
+        <div className="fixed inset-0 z-50 bg-[#F1F5F9] flex flex-col print:bg-white overflow-hidden">
+           <div className="p-4 flex gap-4 justify-end border-b border-[#E2E8F0] print:hidden bg-white shadow-sm shrink-0">
+             <button 
+               onClick={() => { setTimeout(() => window.print(), 100); }}
+               className="px-6 py-2 bg-[#2180B2] text-white rounded-lg font-bold hover:bg-[#1A6B94]"
+             >
+               طباعة الآن
+             </button>
+             <button 
+               onClick={() => setPrintingBarcodeItem(null)}
+               className="px-6 py-2 bg-[#E2E8F0] text-[#1E293B] rounded-lg font-bold hover:bg-[#CBD5E1]"
+             >
+               إلغاء
+             </button>
+           </div>
+           
+           <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-[#F1F5F9] print:p-0 print:bg-white">
+             <div className="bg-white p-8 rounded-2xl shadow-sm border border-[#E2E8F0] print:shadow-none print:border-none print:p-0 flex flex-col items-center justify-center">
+               <div className="text-center p-6 border-[3px] border-black rounded-2xl w-80 bg-white">
+                 <h2 className="text-2xl font-bold mb-1 text-black">{printingBarcodeItem.name}</h2>
+                 <p className="text-black font-bold mb-4">{printingBarcodeItem.brand || printingBarcodeItem.category}</p>
+                 <div className="flex justify-center mb-4">
+                   <Barcode value={printingBarcodeItem.code} width={2.5} height={80} displayValue={true} />
+                 </div>
+                 <p className="mt-2 text-3xl font-black text-black">{printingBarcodeItem.sellPrice} ج.م</p>
+               </div>
+             </div>
+           </div>
         </div>
       )}
     </div>

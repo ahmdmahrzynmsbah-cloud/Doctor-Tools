@@ -48,8 +48,8 @@ export default function Customers() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border border-[#E2E8F0] shadow-sm flex flex-col">
+      <div>
+        <div className="bg-white rounded-xl border border-[#E2E8F0] shadow-sm flex flex-col">
           <div className="p-5 border-b border-[#E2E8F0] flex flex-col sm:flex-row gap-4 justify-between items-center">
             <div className="relative w-full sm:max-w-md">
               <div className="absolute inset-y-0 right-3 flex items-center pr-1 pointer-events-none text-[#94A3B8]">
@@ -73,12 +73,13 @@ export default function Customers() {
                   <th className="px-6 py-4">اسم العميل</th>
                   <th className="px-6 py-4">رقم الهاتف</th>
                   <th className="px-6 py-4">الرصيد المالي الحالي (ج.م)</th>
+                  <th className="px-6 py-4 text-center">الإجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E2E8F0] text-sm">
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-[#94A3B8]">
+                    <td colSpan={5} className="px-6 py-8 text-center text-[#94A3B8]">
                       لا يوجد عملاء مطابقين للبحث
                     </td>
                   </tr>
@@ -86,8 +87,7 @@ export default function Customers() {
                   filteredCustomers.map((customer) => (
                     <tr 
                       key={customer.id} 
-                      onClick={() => setSelectedCustomer(customer)}
-                      className={`hover:bg-[#F8FAFC] cursor-pointer transition-colors ${selectedCustomer?.id === customer.id ? 'bg-[#EFF6FF]' : ''}`}
+                      className="hover:bg-[#F8FAFC] transition-colors"
                     >
                       <td className="px-6 py-4 font-mono text-xs font-bold text-[#475569]">{customer.serialNumber}</td>
                       <td className="px-6 py-4 font-bold text-[#1E293B]">
@@ -104,6 +104,18 @@ export default function Customers() {
                           {customer.balance.toLocaleString()}
                         </span>
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCustomer(customer);
+                          }}
+                          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#F1F5F9] text-[#475569] rounded-lg font-bold text-xs hover:bg-[#E2E8F0] transition-colors border-none cursor-pointer"
+                        >
+                          <History className="w-4 h-4" />
+                          سجل الفواتير والتعاملات
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -111,67 +123,82 @@ export default function Customers() {
             </table>
           </div>
         </div>
+      </div>
 
-        <div className="bg-white rounded-xl border border-[#E2E8F0] shadow-sm p-6 overflow-y-auto max-h-[800px]">
-          {selectedCustomer ? (
-            <div className="space-y-6">
-              <div className="text-center pb-6 border-b border-[#E2E8F0]">
-                <div className="w-16 h-16 rounded-full bg-[#EFF6FF] text-[#2563EB] mx-auto flex items-center justify-center mb-3">
-                  <User className="w-8 h-8" />
+      {/* Customer Record Modal */}
+      {selectedCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="font-bold text-lg text-[#1E293B] flex items-center gap-2">
+                <History className="w-5 h-5 text-[#2563EB]" />
+                سجل الفواتير المتبادلة
+              </h3>
+              <button onClick={() => setSelectedCustomer(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-center bg-[#F1F5F9] p-4 rounded-xl border border-[#E2E8F0] gap-4">
+                <div className="flex items-center gap-4 text-right">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#2563EB] shadow-sm">
+                    <User className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-[#1E293B] text-lg">{selectedCustomer.name}</h3>
+                    <p className="text-sm text-[#64748B] font-mono">{selectedCustomer.phone}</p>
+                  </div>
                 </div>
-                <h3 className="font-bold text-lg text-[#1E293B]">{selectedCustomer.name}</h3>
-                <p className="text-sm font-mono text-[#64748B] mt-1">{selectedCustomer.serialNumber}</p>
-                <div className="mt-4 p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
-                  <p className="text-xs text-[#475569] font-bold mb-1">الرصيد المالي الحالي</p>
+                <div className="text-left bg-white px-5 py-3 rounded-xl shadow-sm border border-[#E2E8F0] w-full sm:w-auto">
+                  <p className="text-xs text-[#475569] font-bold mb-1 block">الرصيد الحالي</p>
                   <p className={`text-2xl font-bold ${selectedCustomer.balance > 0 ? 'text-[#DC2626]' : selectedCustomer.balance < 0 ? 'text-[#16A34A]' : 'text-[#1E293B]'}`} dir="ltr">
-                    {selectedCustomer.balance.toLocaleString()} <span className="text-sm">ج.م</span>
+                    {Math.abs(selectedCustomer.balance).toLocaleString()} <span className="text-xs text-[#94A3B8]">ج.م</span>
                   </p>
-                  <p className="text-[10px] text-[#94A3B8] mt-1">
-                    {selectedCustomer.balance > 0 ? 'مستحقات مطلوبة من العميل' : selectedCustomer.balance < 0 ? 'رصيد دائن للعميل' : 'حساب خالص غير مدين'}
+                  <p className="text-[10px] text-[#94A3B8] mt-1 text-center font-bold">
+                    {selectedCustomer.balance > 0 ? 'مطلوب من العميل' : selectedCustomer.balance < 0 ? 'رصيد دائن للعميل' : 'حساب خالص غير مدين'}
                   </p>
                 </div>
               </div>
 
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <History className="w-4 h-4 text-[#475569]" />
-                  <h4 className="font-bold text-[#1E293B]">سجل المعاملات والفواتير</h4>
-                </div>
+                <h4 className="font-bold text-[#1E293B] mb-4 flex items-center gap-2">الفواتير المسجلة</h4>
                 
                 <div className="space-y-3">
                   {getCustomerTransactions(selectedCustomer.id).length > 0 ? (
                     getCustomerTransactions(selectedCustomer.id).map(inv => (
-                      <div key={inv.id} className="p-3 border border-[#E2E8F0] rounded-lg">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-bold bg-[#F1F5F9] px-2 py-1 rounded text-[#475569] font-mono">{inv.invoiceNumber}</span>
-                          <span className="text-[10px] text-[#94A3B8]">{new Date(inv.date).toLocaleDateString()}</span>
+                      <div key={inv.id} className="p-4 border border-[#E2E8F0] rounded-xl bg-white flex items-center justify-between hover:border-[#2563EB] transition-colors">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-bold bg-[#EFF6FF] px-2 py-1 rounded text-[#2563EB] font-mono">فاتورة SA-{inv.invoiceNumber}</span>
+                            <span className="text-xs font-bold text-[#64748B] bg-[#F1F5F9] px-2 py-1 rounded">{new Date(inv.date).toLocaleDateString('ar-EG')}</span>
+                          </div>
+                          <p className="text-xs text-[#64748B] font-bold">إجمالي الفاتورة: <span className="text-[#1E293B] text-base">{inv.total.toLocaleString()}</span> ج.م</p>
                         </div>
-                        <div className="flex justify-between items-end mt-2">
-                          <div>
-                            <p className="text-[10px] text-[#64748B]">إجمالي הפاتورة</p>
-                            <p className="font-bold text-sm" dir="ltr">{inv.total.toLocaleString()}</p>
-                          </div>
-                          <div className="text-right">
-                             <p className="text-[10px] text-[#64748B]">المدفوع</p>
-                             <p className="font-bold text-sm text-[#16A34A]" dir="ltr">{inv.paid.toLocaleString()}</p>
-                          </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${inv.paid >= inv.total ? 'bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]' : 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]'}`}>
+                            {inv.paid >= inv.total ? 'نقدي خــالــص' : 'دفعة جزئية / آجل'}
+                          </span>
+                          <span className="text-sm font-bold text-[#16A34A] mt-1">المدفوع نقداً: {inv.paid.toLocaleString()}</span>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-[#94A3B8] text-center p-4">لا توجد حركات مسجلة</p>
+                    <div className="text-center py-8 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
+                      <p className="text-sm font-bold text-[#94A3B8]">لا توجد فواتير سابقة لهذا العميل.</p>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center text-[#94A3B8] min-h-[300px]">
-              <UsersIcon className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm font-bold">حدد عميلاً لعرض التفاصيل</p>
+            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex justify-end">
+               <button onClick={() => setSelectedCustomer(null)} className="px-6 py-2.5 bg-white border border-[#E2E8F0] text-[#1E293B] rounded-xl font-bold hover:bg-[#F1F5F9] transition-colors cursor-pointer">
+                 إغلاق النافذة
+               </button>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A2332]/50 backdrop-blur-sm p-4">

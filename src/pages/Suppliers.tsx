@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart } from 'lucide-react';
+import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart, History } from 'lucide-react';
 import { useAppData, Supplier } from '@/src/context/AppDataContext';
 
 export default function Suppliers() {
@@ -13,9 +13,15 @@ export default function Suppliers() {
   const [purchaseItems, setPurchaseItems] = useState([{ inventoryId: '', qty: 1, cost: 0 }]);
   const [paidAmount, setPaidAmount] = useState(0);
 
+  const [selectedSupplierHistory, setSelectedSupplierHistory] = useState<Supplier | null>(null);
+
   const [newSupplier, setNewSupplier] = useState({
     name: '', phone: '', balance: 0
   });
+
+  const getSupplierPurchases = (supplierId: string) => {
+    return purchases.filter(p => p.supplierId === supplierId);
+  };
 
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter(s => 
@@ -108,12 +114,13 @@ export default function Suppliers() {
                 <th className="px-6 py-4">رقم الهاتف</th>
                 <th className="px-6 py-4">الرصيد المستحق (ج.م)</th>
                 <th className="px-6 py-4">حالة الحساب</th>
+                <th className="px-6 py-4 text-center">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] text-sm">
               {filteredSuppliers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-[#94A3B8]">
+                  <td colSpan={5} className="px-6 py-8 text-center text-[#94A3B8]">
                     لا يوجد موردين مطابقين للبحث
                   </td>
                 </tr>
@@ -139,6 +146,15 @@ export default function Suppliers() {
                       {supplier.balance < 0 && <span className="px-2 py-1 rounded-md text-[11px] font-bold bg-[#F0FDF4] text-[#16A34A] whitespace-nowrap">الورشة دائنة للمورد</span>}
                       {supplier.balance === 0 && <span className="px-2 py-1 rounded-md text-[11px] font-bold bg-[#F8FAFC] text-[#475569] border border-[#E2E8F0] whitespace-nowrap">خالص</span>}
                     </td>
+                    <td className="px-6 py-4 text-center">
+                      <button 
+                        onClick={() => setSelectedSupplierHistory(supplier)}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#F1F5F9] text-[#475569] rounded-lg font-bold text-xs hover:bg-[#E2E8F0] transition-colors border-none cursor-pointer"
+                      >
+                        <History className="w-4 h-4" />
+                        سجل المشتريات والتعاملات
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -146,6 +162,81 @@ export default function Suppliers() {
           </table>
         </div>
       </div>
+
+      {/* Supplier Record Modal */}
+      {selectedSupplierHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="font-bold text-lg text-[#1E293B] flex items-center gap-2">
+                <History className="w-5 h-5 text-[#2563EB]" />
+                سجل المشتريات المتبادلة
+              </h3>
+              <button onClick={() => setSelectedSupplierHistory(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-center bg-[#F1F5F9] p-4 rounded-xl border border-[#E2E8F0] gap-4">
+                <div className="flex items-center gap-4 text-right">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#2563EB] shadow-sm">
+                    <Factory className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-[#1E293B] text-lg">{selectedSupplierHistory.name}</h3>
+                    <p className="text-sm text-[#64748B] font-mono">{selectedSupplierHistory.phone}</p>
+                  </div>
+                </div>
+                <div className="text-left bg-white px-5 py-3 rounded-xl shadow-sm border border-[#E2E8F0] w-full sm:w-auto">
+                  <p className="text-xs text-[#475569] font-bold mb-1 block">الرصيد الحالي</p>
+                  <p className={`text-2xl font-bold ${selectedSupplierHistory.balance > 0 ? 'text-[#DC2626]' : selectedSupplierHistory.balance < 0 ? 'text-[#16A34A]' : 'text-[#1E293B]'}`} dir="ltr">
+                    {Math.abs(selectedSupplierHistory.balance).toLocaleString()} <span className="text-xs text-[#94A3B8]">ج.م</span>
+                  </p>
+                  <p className="text-[10px] text-[#94A3B8] mt-1 text-center font-bold">
+                    {selectedSupplierHistory.balance > 0 ? 'مطلوب تسديده للمورد' : selectedSupplierHistory.balance < 0 ? 'رصيد دائن للمورد' : 'حساب خالص غير مدين'}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-[#1E293B] mb-4 flex items-center gap-2">المشتريات والتوريدات السابقة</h4>
+                
+                <div className="space-y-3">
+                  {getSupplierPurchases(selectedSupplierHistory.id).length > 0 ? (
+                    getSupplierPurchases(selectedSupplierHistory.id).map(inv => (
+                      <div key={inv.id} className="p-4 border border-[#E2E8F0] rounded-xl bg-white flex items-center justify-between hover:border-[#2563EB] transition-colors">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-bold bg-[#EFF6FF] px-2 py-1 rounded text-[#2563EB] font-mono">توريد #{inv.id.slice(0, 5)}</span>
+                            <span className="text-xs font-bold text-[#64748B] bg-[#F1F5F9] px-2 py-1 rounded">{new Date(inv.date).toLocaleDateString('ar-EG')}</span>
+                          </div>
+                          <p className="text-xs text-[#64748B] font-bold">إجمالي المطالبة: <span className="text-[#1E293B] text-base">{inv.total.toLocaleString()}</span> ج.م</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${inv.paid >= inv.total ? 'bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]' : 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]'}`}>
+                            {inv.paid >= inv.total ? 'نقدي خــالــص' : 'دفعة جزئية / آجل'}
+                          </span>
+                          <span className="text-sm font-bold text-[#16A34A] mt-1">المدفوع نقداً: {inv.paid.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
+                      <p className="text-sm font-bold text-[#94A3B8]">لا توجد مشتريات سابقة من هذا المورد.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex justify-end">
+               <button onClick={() => setSelectedSupplierHistory(null)} className="px-6 py-2.5 bg-white border border-[#E2E8F0] text-[#1E293B] rounded-xl font-bold hover:bg-[#F1F5F9] transition-colors cursor-pointer">
+                 إغلاق النافذة
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Supplier Modal */}
       {isAddSupplierModalOpen && (
@@ -204,7 +295,7 @@ export default function Suppliers() {
                 <h4 className="font-bold text-sm text-[#1E293B] mb-3">تفاصيل البضاعة الواردة (تُضاف للمخزون فوراً)</h4>
                 <div className="space-y-3">
                   {purchaseItems.map((item, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div key={idx} className="flex flex-col sm:flex-row gap-2 bg-[#F1F5F9] p-3 rounded-lg sm:bg-transparent sm:p-0">
                        <select 
                          required 
                          value={item.inventoryId}
@@ -218,26 +309,28 @@ export default function Suppliers() {
                          <option value="">-- الصنف --</option>
                          {inventory.map(inv => <option key={inv.id} value={inv.id}>{inv.name} (متوفر: {inv.quantity})</option>)}
                        </select>
-                       <input 
-                         type="number" min="1" placeholder="الكمية" required
-                         value={item.qty}
-                         onChange={(e) => {
-                            const newItems = [...purchaseItems];
-                            newItems[idx].qty = Number(e.target.value);
-                            setPurchaseItems(newItems);
-                         }}
-                         className="w-24 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#10B981] focus:outline-none"
-                       />
-                       <input 
-                         type="number" min="0" placeholder="تكلفة الوحدة" required
-                         value={item.cost}
-                         onChange={(e) => {
-                            const newItems = [...purchaseItems];
-                            newItems[idx].cost = Number(e.target.value);
-                            setPurchaseItems(newItems);
-                         }}
-                         className="w-32 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#10B981] focus:outline-none"
-                       />
+                       <div className="flex gap-2">
+                         <input 
+                           type="number" min="1" placeholder="الكمية" required
+                           value={item.qty}
+                           onChange={(e) => {
+                              const newItems = [...purchaseItems];
+                              newItems[idx].qty = Number(e.target.value);
+                              setPurchaseItems(newItems);
+                           }}
+                           className="w-full sm:w-24 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#10B981] focus:outline-none bg-white"
+                         />
+                         <input 
+                           type="number" min="0" placeholder="تكلفة الوحدة" required
+                           value={item.cost}
+                           onChange={(e) => {
+                              const newItems = [...purchaseItems];
+                              newItems[idx].cost = Number(e.target.value);
+                              setPurchaseItems(newItems);
+                           }}
+                           className="w-full sm:w-32 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#10B981] focus:outline-none bg-white"
+                         />
+                       </div>
                     </div>
                   ))}
                   <button type="button" onClick={() => setPurchaseItems([...purchaseItems, { inventoryId: '', qty: 1, cost: 0 }])} className="text-xs font-bold text-[#2563EB] hover:underline cursor-pointer">

@@ -1,14 +1,33 @@
+import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { Menu, X } from 'lucide-react';
 
 export default function Layout() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   return (
     <div className="flex h-screen bg-[#F0F4F8] print:bg-white text-[#1E293B] font-sans overflow-hidden print:overflow-visible print:h-auto print:block" dir="rtl">
-      <Sidebar />
+      {/* Mobile overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-[#0F172A]/50 z-20 md:hidden backdrop-blur-sm"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+      
+      {/* Sidebar wrapper */}
+      <div className={`fixed inset-y-0 right-0 z-30 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <Sidebar onCloseMobile={() => setIsMobileMenuOpen(false)} />
+      </div>
+
       <div className="flex-1 flex flex-col min-w-0 print:block">
-        <Header />
-        <main className="flex-1 p-8 print:p-0 overflow-y-auto print:overflow-visible print:h-auto space-y-6 print:space-y-0">
+        <Header 
+          onMenuClick={() => setIsMobileMenuOpen(true)} 
+          isMobileMenuOpen={isMobileMenuOpen}
+        />
+        <main className="flex-1 p-4 md:p-8 print:p-0 overflow-y-auto print:overflow-visible print:h-auto space-y-6 print:space-y-0">
           <Outlet />
         </main>
       </div>

@@ -1,27 +1,41 @@
 import React, { useState } from 'react';
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, Menu } from 'lucide-react';
 import { useAppData } from '@/src/context/AppDataContext';
 
-export default function Header() {
+export default function Header({ onMenuClick, isMobileMenuOpen }: { onMenuClick?: () => void, isMobileMenuOpen?: boolean }) {
   const { notifications, markAllNotificationsRead } = useAppData();
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <header className="h-16 bg-white border-b border-[#E2E8F0] px-8 flex items-center justify-between flex-shrink-0 z-10 sticky top-0 print:hidden">
+    <header className="h-16 bg-white border-b border-[#E2E8F0] px-4 md:px-8 flex items-center justify-between flex-shrink-0 z-10 sticky top-0 print:hidden">
       <div className="flex items-center gap-4 flex-1">
-        <div className="relative">
+        
+        {onMenuClick && (
+          <button 
+            onClick={onMenuClick}
+            className="md:hidden p-2 -mr-2 text-[#475569] hover:bg-[#F1F5F9] rounded-lg cursor-pointer transition-colors bg-transparent border-none block"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
+
+        <div className="relative hidden sm:block">
           <div className="absolute inset-y-0 right-3 flex items-center pr-1 pointer-events-none text-[#94A3B8]">
             <Search className="h-4 w-4" aria-hidden="true" />
           </div>
           <input
             type="text"
-            className="bg-[#F1F5F9] border-none rounded-lg pr-10 pl-4 py-2 text-sm w-80 focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
+            className="bg-[#F1F5F9] border-none rounded-lg pr-10 pl-4 py-2 text-sm w-full sm:w-64 lg:w-80 focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
             placeholder="بحث عام..."
           />
         </div>
       </div>
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-4 md:gap-6">
+        <button className="sm:hidden p-2 text-[#475569] hover:bg-[#F1F5F9] rounded-lg cursor-pointer bg-transparent border-none">
+          <Search className="w-5 h-5" />
+        </button>
+        
         <div className="relative">
           <button 
             onClick={() => setShowNotifications(!showNotifications)}

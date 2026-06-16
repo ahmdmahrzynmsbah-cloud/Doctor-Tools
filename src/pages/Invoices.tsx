@@ -28,6 +28,10 @@ export default function Invoices() {
   // Item Search
   const [itemSearchText, setItemSearchText] = useState('');
 
+  const [showDetailsAndPrices, setShowDetailsAndPrices] = useState(true);
+  const [autoScannerActive, setAutoScannerActive] = useState(true);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
       const c = customers.find(c => c.id === inv.customerId);
@@ -38,11 +42,42 @@ export default function Invoices() {
   const searchResults = useMemo(() => {
     if (!itemSearchText.trim()) return [];
     const term = itemSearchText.toLowerCase();
+    
+    // Auto-select if auto scanner is active and exact match with code
+    if (autoScannerActive) {
+       const exactMatch = inventory.find(i => i.code.toLowerCase() === term);
+       if (exactMatch) {
+         return [exactMatch];
+       }
+    }
+    
     return inventory.filter(i => 
       i.name.toLowerCase().includes(term) || 
-      i.serialNumber.toLowerCase().includes(term)
+      i.code.toLowerCase().includes(term) ||
+      (i.brand && i.brand.toLowerCase().includes(term))
     );
-  }, [itemSearchText, inventory]);
+  }, [itemSearchText, inventory, autoScannerActive]);
+
+  useEffect(() => {
+     // If auto scanner is active, and there is exactly one result that matches the code exactly
+     if (autoScannerActive && searchResults.length === 1 && searchResults[0].code.toLowerCase() === itemSearchText.toLowerCase()) {
+        const item = searchResults[0];
+        const existing = invoiceItems.find(i => i.inventoryId === item.id);
+        if (existing) {
+          setInvoiceItems(invoiceItems.map(i => i.inventoryId === item.id ? { ...i, qty: i.qty + 1 } : i));
+        } else {
+          setInvoiceItems([...invoiceItems, { inventoryId: item.id, qty: 1 }]);
+        }
+        setItemSearchText('');
+        
+        // Refocus after 100ms
+        setTimeout(() => {
+           if (searchInputRef.current) {
+             searchInputRef.current.focus();
+           }
+        }, 100);
+     }
+  }, [searchResults, autoScannerActive, invoiceItems, itemSearchText]);
 
   const getInventoryItem = (id: string) => inventory.find(i => i.id === id);
   
@@ -258,14 +293,14 @@ export default function Invoices() {
         <div className="flex gap-4 p-2 bg-[#F8FAFC] rounded-2xl border border-[#E2E8F0]">
           <button 
             onClick={() => { resetForm(); setViewMode('create'); }}
-            className={`flex-1 py-3 px-6 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${viewMode === 'create' ? 'bg-[#2180B2] text-white shadow-md' : 'text-[#475569] hover:bg-white hover:shadow-sm bg-transparent border-none'}`}
+            className={`flex-1 py-3 px-6 rounded-xl font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${viewMode === 'create' ? 'bg-[#2180B2] text-white shadow-md' : 'text-[#475569] hover:bg-white hover:shadow-sm bg-transparent border-none'}`}
           >
             <FileText className="w-5 h-5" />
             إنشاء فاتورة بيع جديدة
           </button>
           <button 
             onClick={() => setViewMode('list')}
-            className={`flex-1 py-3 px-6 rounded-xl font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border-none bg-transparent ${viewMode === 'list' ? 'bg-[#2180B2] text-white shadow-md' : 'text-[#475569] hover:bg-white hover:shadow-sm'}`}
+            className={`flex-1 py-3 px-6 rounded-xl font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${viewMode === 'list' ? 'bg-[#2180B2] text-white shadow-md' : 'text-[#475569] hover:bg-white hover:shadow-sm bg-transparent border-none'}`}
           >
             <List className="w-5 h-5" />
             سجل المبيعات وقائمة الفواتير
@@ -378,15 +413,29 @@ export default function Invoices() {
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-lg text-[#1E293B]">إضافة السلع بالاسم أو الباركود</h3>
                     <div className="flex gap-2">
-                       <span className="px-3 py-1 bg-[#F1F5F9] text-[#475569] rounded border border-[#E2E8F0] text-sm font-bold">عرض التفاصيل والأسعار ⚡</span>
-                       <span className="px-3 py-1 bg-[#F0FDF4] text-[#16A34A] rounded border border-[#BBF7D0] text-sm font-bold flex items-center gap-1">
-                         <span className="w-2 h-2 rounded-full bg-[#16A34A]"></span> القارئ الآلي نشط
-                       </span>
+                       <button
+                         type="button"
+                         onClick={() => setShowDetailsAndPrices(!showDetailsAndPrices)}
+                         className={`px-3 py-1 rounded border text-sm font-bold cursor-pointer transition-colors ${showDetailsAndPrices ? 'bg-[#F1F5F9] text-[#475569] border-[#E2E8F0]' : 'bg-white text-[#94A3B8] border-[#E2E8F0]'}`}
+                       >
+                         عرض التفاصيل والأسعار ⚡
+                       </button>
+                       <button
+                         type="button"
+                         onClick={() => setAutoScannerActive(!autoScannerActive)}
+                         className={`px-3 py-1 rounded border text-sm font-bold flex items-center gap-1 cursor-pointer transition-colors ${autoScannerActive ? 'bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]' : 'bg-white text-[#94A3B8] border-[#E2E8F0]'}`}
+                       >
+                         <span className={`w-2 h-2 rounded-full ${autoScannerActive ? 'bg-[#16A34A]' : 'bg-[#94A3B8]'}`}></span> القارئ الآلي نشط
+                       </button>
                     </div>
                   </div>
 
                   <div className="flex gap-4">
-                     <button type="button" className="shrink-0 px-4 py-3 bg-[#16A34A] text-white rounded-xl font-bold flex items-center gap-2 cursor-pointer border-none hover:bg-[#15803D]">
+                     <button
+                       type="button"
+                       onClick={() => searchInputRef.current?.focus()}
+                       className="shrink-0 px-4 py-3 bg-[#16A34A] text-white rounded-xl font-bold flex items-center gap-2 cursor-pointer border-none hover:bg-[#15803D] transition-colors"
+                     >
                        <Barcode className="w-5 h-5" />
                        توجيه قارئ الباركود اليدوي
                      </button>
@@ -395,6 +444,7 @@ export default function Invoices() {
                          <Search className="h-5 w-5" aria-hidden="true" />
                        </div>
                        <input
+                         ref={searchInputRef}
                          type="text"
                          value={itemSearchText}
                          onChange={(e) => setItemSearchText(e.target.value)}
@@ -413,9 +463,9 @@ export default function Invoices() {
                              >
                                <div>
                                  <p className="font-bold text-[#1E293B]">{item.name}</p>
-                                 <p className="text-xs text-[#94A3B8]">كود: {item.serialNumber} | متاح: {item.quantity}</p>
+                                 {showDetailsAndPrices && <p className="text-xs text-[#94A3B8]">كود: {item.code} | متاح: {item.quantity}</p>}
                                </div>
-                               <span className="font-bold text-[#2180B2]">{item.sellPrice.toLocaleString()} ج.م</span>
+                               {showDetailsAndPrices && <span className="font-bold text-[#2180B2]">{item.sellPrice.toLocaleString()} ج.م</span>}
                              </button>
                            ))}
                          </div>
@@ -444,9 +494,9 @@ export default function Invoices() {
                         <thead className="bg-[#F8FAFC] text-[#475569] text-sm">
                           <tr>
                             <th className="py-3 px-4 font-bold">اسم المنتج / الصنف</th>
-                            <th className="py-3 px-4 font-bold w-32">السعر (ج.م)</th>
+                            {showDetailsAndPrices && <th className="py-3 px-4 font-bold w-32">السعر (ج.م)</th>}
                             <th className="py-3 px-4 font-bold w-32">الكمية</th>
-                            <th className="py-3 px-4 font-bold w-32">الإجمالي (ج.م)</th>
+                            {showDetailsAndPrices && <th className="py-3 px-4 font-bold w-32">الإجمالي (ج.م)</th>}
                             <th className="py-3 px-4 w-16"></th>
                           </tr>
                         </thead>
@@ -459,9 +509,9 @@ export default function Invoices() {
                               <tr key={idx} className="hover:bg-[#F8FAFC] transition-colors">
                                 <td className="py-3 px-4">
                                   <p className="font-bold text-[#1E293B]">{invItem.name}</p>
-                                  <p className="text-xs text-[#94A3B8]">كود: {invItem.serialNumber}</p>
+                                  {showDetailsAndPrices && <p className="text-xs text-[#94A3B8]">كود: {invItem.code}</p>}
                                 </td>
-                                <td className="py-3 px-4 font-bold text-[#475569]">{invItem.sellPrice.toLocaleString()}</td>
+                                {showDetailsAndPrices && <td className="py-3 px-4 font-bold text-[#475569]">{invItem.sellPrice.toLocaleString()}</td>}
                                 <td className="py-3 px-4">
                                   <input 
                                     type="number" min="1" required
@@ -477,7 +527,7 @@ export default function Invoices() {
                                     className="w-20 border border-[#E2E8F0] rounded-lg px-2 py-1 text-center font-bold focus:ring-2 focus:ring-[#2180B2] focus:outline-none"
                                   />
                                 </td>
-                                <td className="py-3 px-4 font-bold text-[#2180B2]">{qtyTotal.toLocaleString()}</td>
+                                {showDetailsAndPrices && <td className="py-3 px-4 font-bold text-[#2180B2]">{qtyTotal.toLocaleString()}</td>}
                                 <td className="py-3 px-4 text-center">
                                   <button
                                     type="button" 
