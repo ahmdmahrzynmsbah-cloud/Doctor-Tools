@@ -1,14 +1,18 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart, History } from 'lucide-react';
+import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart, History, Edit2, Trash2, Banknote, Printer } from 'lucide-react';
 import { useAppData, Supplier } from '@/src/context/AppDataContext';
 
 export default function Suppliers() {
-  const { suppliers, purchases, inventory, addSupplier, createPurchase } = useAppData();
+  const { suppliers, purchases, inventory, addSupplier, updateSupplier, deleteSupplier, createPurchase, recordSupplierPayment } = useAppData();
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   
+  const [paymentSupplier, setPaymentSupplier] = useState<Supplier | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [purchaseItems, setPurchaseItems] = useState([{ inventoryId: '', qty: 1, cost: 0 }]);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -23,6 +27,56 @@ export default function Suppliers() {
     return purchases.filter(p => p.supplierId === supplierId);
   };
 
+  const ledgerEntries = useMemo(() => {
+    if (!selectedSupplierHistory) return [];
+
+    const transactions = [...getSupplierPurchases(selectedSupplierHistory.id)].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    let netChange = transactions.reduce((acc, inv) => acc + (inv.total - inv.paid), 0);
+    const initialBalance = selectedSupplierHistory.balance - netChange;
+
+    let currentBalance = initialBalance;
+    const entries = [];
+
+    if (initialBalance !== 0 || transactions.length === 0) {
+      entries.push({
+        id: 'initial',
+        date: '-',
+        description: 'رصيد مرحل (افتتاحي)',
+        debit: initialBalance < 0 ? Math.abs(initialBalance) : 0, 
+        credit: initialBalance > 0 ? initialBalance : 0,
+        balance: currentBalance,
+        isInitial: true
+      });
+    }
+
+    transactions.forEach(inv => {
+      const isPayment = inv.items.length === 0;
+      const debit = inv.paid; // دفعات سددناها للمورد
+      const credit = inv.total; // بضاعة وردها لنا المورد
+      
+      currentBalance += (credit - debit);
+
+      entries.push({
+        id: inv.id,
+        date: new Date(inv.date).toLocaleDateString('ar-EG'),
+        description: isPayment ? `سند صرف للمورد` : `توريد ونزول بضاعة`,
+        debit: debit,
+        credit: credit,
+        balance: currentBalance,
+        isInitial: false
+      });
+    });
+
+    return entries;
+  }, [selectedSupplierHistory, purchases]);
+
+  const handlePrintStatement = () => {
+    window.print();
+  };
+
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter(s => 
       s.name.includes(searchTerm) || 
@@ -32,9 +86,39 @@ export default function Suppliers() {
 
   const handleAddSupplier = (e: React.FormEvent) => {
     e.preventDefault();
-    addSupplier(newSupplier);
+    if (editingSupplier) {
+      updateSupplier(editingSupplier.id, newSupplier);
+    } else {
+      addSupplier(newSupplier);
+    }
+    closeSupplierModal();
+  };
+
+  const closeSupplierModal = () => {
     setIsAddSupplierModalOpen(false);
+    setEditingSupplier(null);
     setNewSupplier({ name: '', phone: '', balance: 0 });
+  };
+
+  const openEditSupplierModal = (supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setNewSupplier({ name: supplier.name, phone: supplier.phone, balance: supplier.balance });
+    setIsAddSupplierModalOpen(true);
+  };
+
+  const handleDeleteSupplier = (id: string, name: string) => {
+    if (window.confirm(`هل أنت متأكد من حذف المورد "${name}"؟`)) {
+      deleteSupplier(id);
+    }
+  };
+
+  const handlePaymentSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (paymentSupplier && paymentAmount) {
+      recordSupplierPayment(paymentSupplier.id, Number(paymentAmount));
+      setPaymentSupplier(null);
+      setPaymentAmount('');
+    }
   };
 
   const handleCreatePurchase = (e: React.FormEvent) => {
@@ -66,7 +150,8 @@ export default function Suppliers() {
   };
 
   return (
-    <div className="space-y-6">
+    <>
+    <div className={`space-y-6 ${selectedSupplierHistory ? 'print:hidden' : ''}`}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-[#1E293B]">حسابات الموردين والمشتريات</h2>
@@ -81,7 +166,11 @@ export default function Suppliers() {
             شراء أصناف وتوريد
           </button>
           <button 
-            onClick={() => setIsAddSupplierModalOpen(true)}
+            onClick={() => {
+              setEditingSupplier(null);
+              setNewSupplier({ name: '', phone: '', balance: 0 });
+              setIsAddSupplierModalOpen(true);
+            }}
             className="inline-flex items-center justify-center gap-2 rounded-md bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] cursor-pointer"
           >
             <Plus className="h-4 w-4" />
@@ -147,13 +236,46 @@ export default function Suppliers() {
                       {supplier.balance === 0 && <span className="px-2 py-1 rounded-md text-[11px] font-bold bg-[#F8FAFC] text-[#475569] border border-[#E2E8F0] whitespace-nowrap">خالص</span>}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => setSelectedSupplierHistory(supplier)}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#F1F5F9] text-[#475569] rounded-lg font-bold text-xs hover:bg-[#E2E8F0] transition-colors border-none cursor-pointer"
-                      >
-                        <History className="w-4 h-4" />
-                        سجل المشتريات والتعاملات
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => setSelectedSupplierHistory(supplier)}
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#F1F5F9] text-[#475569] rounded-lg font-bold text-xs hover:bg-[#E2E8F0] transition-colors border-none cursor-pointer"
+                        >
+                          <History className="w-4 h-4" />
+                          السجل
+                        </button>
+                        {supplier.balance > 0 && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPaymentSupplier(supplier);
+                              setPaymentAmount(supplier.balance);
+                            }}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#EFF6FF] text-[#2563EB] rounded-lg font-bold text-xs hover:bg-[#DBEAFE] transition-colors border-none cursor-pointer"
+                          >
+                            <Banknote className="w-4 h-4" />
+                            سداد 
+                          </button>
+                        )}
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditSupplierModal(supplier);
+                          }}
+                          className="inline-flex items-center justify-center w-8 h-8 bg-white border border-[#E2E8F0] text-[#475569] rounded-lg hover:bg-[#F1F5F9] hover:text-[#2563EB] transition-colors cursor-pointer"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSupplier(supplier.id, supplier.name);
+                          }}
+                          className="inline-flex items-center justify-center w-8 h-8 bg-white border border-[#E2E8F0] text-[#475569] rounded-lg hover:bg-[#FEE2E2] hover:text-[#DC2626] hover:border-[#FECACA] transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -165,71 +287,94 @@ export default function Suppliers() {
 
       {/* Supplier Record Modal */}
       {selectedSupplierHistory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4 print:p-0 print:bg-white print:items-start print:block print:relative print:z-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:h-auto print:shadow-none print:rounded-none">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC] print:hidden">
               <h3 className="font-bold text-lg text-[#1E293B] flex items-center gap-2">
                 <History className="w-5 h-5 text-[#2563EB]" />
                 سجل المشتريات المتبادلة
               </h3>
-              <button onClick={() => setSelectedSupplierHistory(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
-                <X className="w-6 h-6" />
-              </button>
+              <div className="flex items-center gap-3">
+                 <button onClick={handlePrintStatement} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg font-bold text-xs hover:bg-[#1D4ED8] transition-colors border-none cursor-pointer">
+                    <Printer className="w-4 h-4" />
+                    طباعة
+                 </button>
+                 <button onClick={() => setSelectedSupplierHistory(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
+                   <X className="w-6 h-6" />
+                 </button>
+              </div>
             </div>
             
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-center bg-[#F1F5F9] p-4 rounded-xl border border-[#E2E8F0] gap-4">
-                <div className="flex items-center gap-4 text-right">
-                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#2563EB] shadow-sm">
+            <div className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2">
+              <div className="text-center hidden print:block mb-6 pt-4 border-b pb-4">
+                <h2 className="text-2xl font-bold text-[#1E293B]">كشف حساب مورد</h2>
+                <div className="text-sm text-[#475569] mt-1 space-x-4 space-x-reverse">
+                  <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row justify-between items-center bg-[#F1F5F9] p-4 rounded-xl border border-[#E2E8F0] gap-4 print:bg-transparent print:border-none print:p-0 print:items-end print:mb-6">
+                <div className="flex items-center gap-4 text-right print:gap-2">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#2563EB] shadow-sm print:hidden">
                     <Factory className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-[#1E293B] text-lg">{selectedSupplierHistory.name}</h3>
-                    <p className="text-sm text-[#64748B] font-mono">{selectedSupplierHistory.phone}</p>
+                    <h3 className="font-bold text-[#1E293B] text-lg print:text-xl">اسم المورد: {selectedSupplierHistory.name}</h3>
+                    <p className="text-sm text-[#64748B] font-mono mt-1 print:text-[#1E293B]">تليفون: {selectedSupplierHistory.phone}</p>
                   </div>
                 </div>
-                <div className="text-left bg-white px-5 py-3 rounded-xl shadow-sm border border-[#E2E8F0] w-full sm:w-auto">
+                <div className="text-left bg-white px-5 py-3 rounded-xl shadow-sm border border-[#E2E8F0] w-full sm:w-auto print:shadow-none print:px-4">
                   <p className="text-xs text-[#475569] font-bold mb-1 block">الرصيد الحالي</p>
-                  <p className={`text-2xl font-bold ${selectedSupplierHistory.balance > 0 ? 'text-[#DC2626]' : selectedSupplierHistory.balance < 0 ? 'text-[#16A34A]' : 'text-[#1E293B]'}`} dir="ltr">
-                    {Math.abs(selectedSupplierHistory.balance).toLocaleString()} <span className="text-xs text-[#94A3B8]">ج.م</span>
+                  <p className={`text-2xl font-bold ${selectedSupplierHistory.balance > 0 ? 'text-[#DC2626]' : selectedSupplierHistory.balance < 0 ? 'text-[#16A34A]' : 'text-[#1E293B]'} print:text-black`} dir="ltr">
+                    {Math.abs(selectedSupplierHistory.balance).toLocaleString()} <span className="text-xs text-[#94A3B8] print:text-black">ج.م</span>
                   </p>
-                  <p className="text-[10px] text-[#94A3B8] mt-1 text-center font-bold">
+                  <p className="text-[10px] text-[#94A3B8] mt-1 text-center font-bold print:text-black">
                     {selectedSupplierHistory.balance > 0 ? 'مطلوب تسديده للمورد' : selectedSupplierHistory.balance < 0 ? 'رصيد دائن للمورد' : 'حساب خالص غير مدين'}
                   </p>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-bold text-[#1E293B] mb-4 flex items-center gap-2">المشتريات والتوريدات السابقة</h4>
-                
-                <div className="space-y-3">
-                  {getSupplierPurchases(selectedSupplierHistory.id).length > 0 ? (
-                    getSupplierPurchases(selectedSupplierHistory.id).map(inv => (
-                      <div key={inv.id} className="p-4 border border-[#E2E8F0] rounded-xl bg-white flex items-center justify-between hover:border-[#2563EB] transition-colors">
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-bold bg-[#EFF6FF] px-2 py-1 rounded text-[#2563EB] font-mono">توريد #{inv.id.slice(0, 5)}</span>
-                            <span className="text-xs font-bold text-[#64748B] bg-[#F1F5F9] px-2 py-1 rounded">{new Date(inv.date).toLocaleDateString('ar-EG')}</span>
-                          </div>
-                          <p className="text-xs text-[#64748B] font-bold">إجمالي المطالبة: <span className="text-[#1E293B] text-base">{inv.total.toLocaleString()}</span> ج.م</p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${inv.paid >= inv.total ? 'bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]' : 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]'}`}>
-                            {inv.paid >= inv.total ? 'نقدي خــالــص' : 'دفعة جزئية / آجل'}
-                          </span>
-                          <span className="text-sm font-bold text-[#16A34A] mt-1">المدفوع نقداً: {inv.paid.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
-                      <p className="text-sm font-bold text-[#94A3B8]">لا توجد مشتريات سابقة من هذا المورد.</p>
-                    </div>
-                  )}
-                </div>
+                <table className="w-full text-right border-collapse border border-[#E2E8F0]">
+                  <thead className="bg-[#F8FAFC]">
+                    <tr>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm print:text-black">التاريخ</th>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm md:w-1/3 print:text-black">البيان</th>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">حركة دائنة (للمورد)</th>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">حركة مدينة (سداد)</th>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">الرصيد (ج.م)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledgerEntries.length > 0 ? (
+                      ledgerEntries.map((row, idx) => (
+                        <tr key={`${row.id}-${idx}`} className={row.isInitial ? 'bg-[#F1F5F9] print:bg-gray-100' : ''}>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-[#64748B] whitespace-nowrap print:text-black">{row.date}</td>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-[#1E293B] font-bold print:text-black">{row.description}</td>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-center text-[#DC2626] font-bold print:text-black" dir="ltr">
+                            {row.credit > 0 ? row.credit.toLocaleString() : '-'}
+                          </td>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-center text-[#16A34A] font-bold print:text-black" dir="ltr">
+                            {row.debit > 0 ? row.debit.toLocaleString() : '-'}
+                          </td>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-center font-bold print:text-black" dir="ltr">
+                            <span className={row.balance > 0 ? 'text-[#DC2626] print:text-black' : row.balance < 0 ? 'text-[#16A34A] print:text-black' : 'text-[#64748B] print:text-black'}>
+                              {Math.abs(row.balance).toLocaleString()} {row.balance > 0 ? 'دائن' : row.balance < 0 ? 'مدين' : ''}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-8 text-center text-[#94A3B8] font-bold print:text-black">لا توجد حركات مسجلة للمورد</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
-            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex justify-end">
+            
+            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex justify-end print:hidden">
                <button onClick={() => setSelectedSupplierHistory(null)} className="px-6 py-2.5 bg-white border border-[#E2E8F0] text-[#1E293B] rounded-xl font-bold hover:bg-[#F1F5F9] transition-colors cursor-pointer">
                  إغلاق النافذة
                </button>
@@ -243,8 +388,8 @@ export default function Suppliers() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A2332]/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center">
-              <h3 className="text-lg font-bold text-[#1E293B]">إضافة مورد جديد</h3>
-              <button onClick={() => setIsAddSupplierModalOpen(false)} className="text-[#94A3B8] hover:text-[#DC2626] cursor-pointer"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-bold text-[#1E293B]">{editingSupplier ? 'تعديل بيانات المورد' : 'إضافة مورد جديد'}</h3>
+              <button onClick={closeSupplierModal} className="text-[#94A3B8] hover:text-[#DC2626] cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleAddSupplier} className="p-6 overflow-y-auto space-y-4">
               <div className="space-y-1">
@@ -261,8 +406,8 @@ export default function Suppliers() {
                 <p className="text-[10px] text-[#94A3B8]">الموجب يعني أن للمورد مستحقات لديك سابقة.</p>
               </div>
               <div className="pt-4 flex justify-end gap-3 border-t border-[#E2E8F0] mt-6">
-                <button type="button" onClick={() => setIsAddSupplierModalOpen(false)} className="px-4 py-2 text-sm font-bold text-[#475569] bg-[#F1F5F9] rounded-lg hover:bg-[#E2E8F0] cursor-pointer">إلغاء</button>
-                <button type="submit" className="px-4 py-2 text-sm font-bold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] cursor-pointer">حفظ المورد</button>
+                <button type="button" onClick={closeSupplierModal} className="px-4 py-2 text-sm font-bold text-[#475569] bg-[#F1F5F9] rounded-lg hover:bg-[#E2E8F0] cursor-pointer">إلغاء</button>
+                <button type="submit" className="px-4 py-2 text-sm font-bold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] cursor-pointer">{editingSupplier ? 'تحديث البيانات' : 'حفظ المورد'}</button>
               </div>
             </form>
           </div>
@@ -363,6 +508,57 @@ export default function Suppliers() {
           </div>
         </div>
       )}
+
+      {/* Supplier Payment Modal */}
+      {paymentSupplier && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A2332]/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="font-bold text-lg text-[#1E293B] flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-[#2563EB]" />
+                سداد دفعة نقدية للمورد
+              </h3>
+              <button onClick={() => setPaymentSupplier(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer border-none bg-transparent">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handlePaymentSupplier} className="p-5 space-y-4">
+              <div className="bg-[#EFF6FF] p-3 rounded-lg border border-[#BFDBFE]">
+                <p className="text-xs text-[#1D4ED8] font-bold mb-1">المورد: {paymentSupplier.name}</p>
+                <p className="text-sm text-[#1E3A8A] font-bold">المطلوب سداده: <span className="text-xl inline-block mr-1">{paymentSupplier.balance.toLocaleString()}</span> ج.م</p>
+              </div>
+
+              <div className="space-y-1 mt-4">
+                <label className="text-sm font-bold text-[#475569]">المبلغ المسدد نقداً (ج.م)</label>
+                <div className="relative">
+                  <input 
+                    required 
+                    type="number" 
+                    min="1"
+                    max={paymentSupplier.balance}
+                    value={paymentAmount} 
+                    onChange={e => setPaymentAmount(Number(e.target.value))} 
+                    className="w-full border border-[#E2E8F0] rounded-lg px-4 py-3 text-lg font-bold flex-1 text-left focus:ring-2 focus:ring-[#2563EB] focus:outline-none" 
+                    dir="ltr"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94A3B8] font-bold pointer-events-none">ج.م</span>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 mt-2">
+                <button type="button" onClick={() => setPaymentSupplier(null)} className="px-4 py-2.5 text-sm font-bold text-[#475569] bg-[#F1F5F9] rounded-lg hover:bg-[#E2E8F0] cursor-pointer">
+                  إلغاء
+                </button>
+                <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] cursor-pointer shadow-sm">
+                  تأكيد السداد
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
+    </>
   );
 }

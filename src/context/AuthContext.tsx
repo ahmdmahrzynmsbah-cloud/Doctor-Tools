@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 type AuthContextType = {
   isAuthenticated: boolean;
-  login: (pass: string) => boolean;
+  login: (pass: string) => Promise<{success: boolean, error?: string}>;
   logout: () => void;
 };
 
@@ -11,13 +11,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const login = (pass: string) => {
-    // Simple admin login check
+  const login = async (pass: string) => {
     if (pass === 'admin') {
       setIsAuthenticated(true);
-      return true;
+      return { success: true };
     }
-    return false;
+    return { success: false, error: 'كلمة المرور غير صحيحة. (استخدم: admin)' };
   };
 
   const logout = () => setIsAuthenticated(false);
