@@ -4,7 +4,7 @@ import { useAppData, Customer } from '@/src/context/AppDataContext';
 import html2canvas from 'html2canvas';
 
 export default function Customers() {
-  const { customers, invoices, inventory, addCustomer, updateCustomer, deleteCustomer, recordCustomerPayment } = useAppData();
+  const { customers, invoices, inventory, addCustomer, updateCustomer, deleteCustomer, recordCustomerPayment, businessProfile } = useAppData();
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -146,10 +146,42 @@ export default function Customers() {
       const element = document.getElementById('statement-printable-area');
       if (!element) return;
       
+      // Temporarily change styles to capture the full scrolling content
+      const originalOverflow = element.style.overflow;
+      const originalHeight = element.style.height;
+      const originalMaxHeight = element.style.maxHeight;
+      const parent = element.closest('.max-h-\\[90vh\\]') as HTMLElement;
+      
+      let parentOriginalMaxHeight = '';
+      let parentOriginalOverflow = '';
+
+      if (parent) {
+        parentOriginalMaxHeight = parent.style.maxHeight;
+        parentOriginalOverflow = parent.style.overflow;
+        parent.style.maxHeight = 'none';
+        parent.style.overflow = 'visible';
+      }
+
+      element.style.overflow = 'visible';
+      element.style.height = 'auto';
+      element.style.maxHeight = 'none';
+
       const canvas = await html2canvas(element, {
         scale: 2,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight
       });
+
+      // Restore original styles
+      element.style.overflow = originalOverflow;
+      element.style.height = originalHeight;
+      element.style.maxHeight = originalMaxHeight;
+
+      if (parent) {
+        parent.style.maxHeight = parentOriginalMaxHeight;
+        parent.style.overflow = parentOriginalOverflow;
+      }
       
       canvas.toBlob(async (blob) => {
         if (!blob) {
@@ -398,10 +430,23 @@ export default function Customers() {
             </div>
             
             <div id="statement-printable-area" className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2 bg-white">
-              <div className="text-center hidden print:block mb-6 pt-4 border-b pb-4">
-                <h2 className="text-2xl font-bold text-[#1E293B]">كشف حساب عميل</h2>
-                <div className="text-sm text-[#475569] mt-1 space-x-4 space-x-reverse">
-                  <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
+              <div className="mb-8 pt-4 border-b-2 border-[#E2E8F0] pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {businessProfile?.logo && (
+                      <img src={businessProfile.logo} alt="Logo" className="w-16 h-16 object-contain" />
+                    )}
+                    <div>
+                      <h1 className="text-2xl font-bold text-[#1E293B]">{businessProfile?.name || 'اسم الشركة'}</h1>
+                      <p className="text-sm font-bold text-[#475569] mt-1" dir="ltr">{businessProfile?.phone || 'رقم التليفون'}</p>
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-3xl font-bold text-[#1E293B] mb-2">كشف حساب عميل</h2>
+                    <div className="text-sm font-bold text-[#475569]">
+                      <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

@@ -4,7 +4,7 @@ import { useAppData, Supplier } from '@/src/context/AppDataContext';
 import html2canvas from 'html2canvas';
 
 export default function Suppliers() {
-  const { suppliers, purchases, inventory, addSupplier, updateSupplier, deleteSupplier, createPurchase, recordSupplierPayment } = useAppData();
+  const { suppliers, purchases, inventory, addSupplier, updateSupplier, deleteSupplier, createPurchase, recordSupplierPayment, businessProfile } = useAppData();
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
@@ -20,6 +20,7 @@ export default function Suppliers() {
 
   const [selectedSupplierHistory, setSelectedSupplierHistory] = useState<Supplier | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [printingPurchase, setPrintingPurchase] = useState<any>(null);
 
   const [newSupplier, setNewSupplier] = useState({
     name: '', phone: '', balance: 0
@@ -77,7 +78,9 @@ export default function Suppliers() {
         debit: debit,
         credit: credit,
         balance: currentBalance,
-        isInitial: false
+        isInitial: false,
+        isPurchase: !isPayment,
+        rawPurchase: inv
       });
     });
 
@@ -101,10 +104,42 @@ export default function Suppliers() {
       const element = document.getElementById('supplier-statement-printable-area');
       if (!element) return;
       
+      // Temporarily change styles to capture the full scrolling content
+      const originalOverflow = element.style.overflow;
+      const originalHeight = element.style.height;
+      const originalMaxHeight = element.style.maxHeight;
+      const parent = element.closest('.max-h-\\[90vh\\]') as HTMLElement;
+      
+      let parentOriginalMaxHeight = '';
+      let parentOriginalOverflow = '';
+
+      if (parent) {
+        parentOriginalMaxHeight = parent.style.maxHeight;
+        parentOriginalOverflow = parent.style.overflow;
+        parent.style.maxHeight = 'none';
+        parent.style.overflow = 'visible';
+      }
+
+      element.style.overflow = 'visible';
+      element.style.height = 'auto';
+      element.style.maxHeight = 'none';
+
       const canvas = await html2canvas(element, {
         scale: 2,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight
       });
+
+      // Restore original styles
+      element.style.overflow = originalOverflow;
+      element.style.height = originalHeight;
+      element.style.maxHeight = originalMaxHeight;
+
+      if (parent) {
+        parent.style.maxHeight = parentOriginalMaxHeight;
+        parent.style.overflow = parentOriginalOverflow;
+      }
       
       canvas.toBlob(async (blob) => {
         if (!blob) {
@@ -219,6 +254,123 @@ export default function Suppliers() {
       recordSupplierPayment(paymentSupplier.id, Number(paymentAmount));
       setPaymentSupplier(null);
       setPaymentAmount('');
+    }
+  };
+
+  const getWhatsAppText = (purchase: any) => {
+    try {
+      const s = suppliers.find(su => su.id === purchase.supplierId);
+      let text = `مرحباً ${s?.name || ''}،\n\n`;
+      text += `تفاصيل فاتورة المشتريات رقم #${(purchase.id || '').slice(-6).toUpperCase()}\n`;
+      text += `التاريخ: ${new Date(purchase.date || new Date()).toLocaleDateString('ar-EG')}\n\n`;
+      
+      text += `*الأصناف:*\n`;
+      (purchase.items || []).forEach((item: any, idx: number) => {
+        const invItem = inventory.find(i => i.id === item.itemId);
+        const qty = item.quantity || 0;
+        const price = item.unitPrice || 0;
+        text += `${idx + 1}- ${invItem ? invItem.name : 'صنف محذوف'} | ${qty} x ${price.toLocaleString()} = ${(qty * price).toLocaleString()} ج.م\n`;
+      });
+      
+      const total = purchase.total || 0;
+      const paid = purchase.paid || 0;
+      
+      text += `\n*الإجمالي النهائي:* ${total.toLocaleString()} ج.م\n`;
+      text += `*المدفوع:* ${paid.toLocaleString()} ج.م\n`;
+      
+      if (total - paid > 0) {
+        text += `*المتبقي:* ${(total - paid).toLocaleString()} ج.م\n`;
+      }
+      text += `\nشكراً لك! - ${businessProfile?.name || 'الشركة'}`;
+
+      return text;
+    } catch (error) {
+      console.error(error);
+      return '';
+    }
+  };
+
+  const handleSharePurchaseWhatsApp = async () => {
+    if (!printingPurchase) return;
+    const s = suppliers.find(su => su.id === printingPurchase.supplierId);
+    if (!s?.phone) {
+      alert("المورد ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      const element = document.getElementById('purchase-invoice-printable-area');
+      if (!element) return;
+      
+      const originalOverflow = element.style.overflow;
+      const originalHeight = element.style.height;
+      const originalMaxHeight = element.style.maxHeight;
+      const parent = element.closest('.max-h-\\[90vh\\]') as HTMLElement;
+      
+      let parentOriginalMaxHeight = '';
+      let parentOriginalOverflow = '';
+
+      if (parent) {
+        parentOriginalMaxHeight = parent.style.maxHeight;
+        parentOriginalOverflow = parent.style.overflow;
+        parent.style.maxHeight = 'none';
+        parent.style.overflow = 'visible';
+      }
+
+      element.style.overflow = 'visible';
+      element.style.height = 'auto';
+      element.style.maxHeight = 'none';
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight
+      });
+
+      element.style.overflow = originalOverflow;
+      element.style.height = originalHeight;
+      element.style.maxHeight = originalMaxHeight;
+
+      if (parent) {
+        parent.style.maxHeight = parentOriginalMaxHeight;
+        parent.style.overflow = parentOriginalOverflow;
+      }
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsGeneratingImage(false);
+          return;
+        }
+        
+        const file = new File([blob], `purchase_invoice_${printingPurchase.id}.png`, { type: 'image/png' });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `فاتورة مشتريات رقم ${printingPurchase.id.slice(-6)}`,
+            text: `تفاصيل فاتورة المشتريات رقم ${printingPurchase.id.slice(-6)} الخاصة بك من ${businessProfile?.name || ''}`
+          });
+        } else {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `purchase_invoice_${printingPurchase.id}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 100);
+          
+          window.open(`https://wa.me/20${s.phone.replace(/^0+/, '')}?text=${encodeURIComponent(`مرفق تفاصيل فاتورة المشتريات رقم ${printingPurchase.id.slice(-6)}.`)}`, '_blank');
+        }
+        
+        setIsGeneratingImage(false);
+      }, 'image/png', 1.0);
+    } catch (error) {
+      console.error('Error generating or sharing image:', error);
+      setIsGeneratingImage(false);
+      alert('حدث خطأ أثناء محاولة المشاركة عبر واتساب.');
     }
   };
 
@@ -427,10 +579,23 @@ export default function Suppliers() {
             </div>
             
             <div id="supplier-statement-printable-area" className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2 bg-white">
-              <div className="text-center hidden print:block mb-6 pt-4 border-b pb-4">
-                <h2 className="text-2xl font-bold text-[#1E293B]">كشف حساب مورد</h2>
-                <div className="text-sm text-[#475569] mt-1 space-x-4 space-x-reverse">
-                  <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
+              <div className="mb-8 pt-4 border-b-2 border-[#E2E8F0] pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {businessProfile?.logo && (
+                      <img src={businessProfile.logo} alt="Logo" className="w-16 h-16 object-contain" />
+                    )}
+                    <div>
+                      <h1 className="text-2xl font-bold text-[#1E293B]">{businessProfile?.name || 'اسم الشركة'}</h1>
+                      <p className="text-sm font-bold text-[#475569] mt-1" dir="ltr">{businessProfile?.phone || 'رقم التليفون'}</p>
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-3xl font-bold text-[#1E293B] mb-2">كشف حساب مورد</h2>
+                    <div className="text-sm font-bold text-[#475569]">
+                      <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -464,11 +629,12 @@ export default function Suppliers() {
                       <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">حركة دائنة (للمورد)</th>
                       <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">حركة مدينة (سداد)</th>
                       <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:text-black">الرصيد (ج.م)</th>
+                      <th className="px-3 py-3 border border-[#E2E8F0] font-bold text-[#475569] text-sm text-center print:hidden">إجراءات</th>
                     </tr>
                   </thead>
                   <tbody>
                     {ledgerEntries.length > 0 ? (
-                      ledgerEntries.map((row, idx) => (
+                      ledgerEntries.map((row: any, idx) => (
                         <tr key={`${row.id}-${idx}`} className={row.isInitial ? 'bg-[#F1F5F9] print:bg-gray-100' : ''}>
                           <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-[#64748B] whitespace-nowrap print:text-black">{row.date}</td>
                           <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-[#1E293B] font-bold print:text-black">{row.description}</td>
@@ -483,11 +649,37 @@ export default function Suppliers() {
                               {Math.abs(row.balance).toLocaleString()} {row.balance > 0 ? 'دائن' : row.balance < 0 ? 'مدين' : ''}
                             </span>
                           </td>
+                          <td className="px-3 py-3 border border-[#E2E8F0] text-sm text-center print:hidden">
+                            {row.isPurchase && row.rawPurchase && (
+                              <button 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  const s = suppliers.find(su => su.id === row.rawPurchase.supplierId);
+                                  if (!s?.phone) {
+                                    alert("المورد ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+                                    return;
+                                  }
+                                  
+                                  // Open the invoice printing modal
+                                  setPrintingPurchase(row.rawPurchase);
+                                  
+                                  // Wait for the modal to render, then click its sharing button
+                                  setTimeout(() => {
+                                    document.getElementById('share-whatsapp-btn')?.click();
+                                  }, 200);
+                                }}
+                                className="inline-block text-[#16A34A] hover:text-[#15803D] transition-colors p-1 cursor-pointer bg-transparent border-none"
+                                title="مشاركة الفاتورة عبر واتساب كصورة"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto"><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21"/><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1Z"/><path d="M14 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1Z"/><path d="M9.5 13.5c.5 1 1.5 1 2.5 1s2-.5 2.5-1"/></svg>
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-3 py-8 text-center text-[#94A3B8] font-bold print:text-black">لا توجد حركات مسجلة للمورد</td>
+                        <td colSpan={6} className="px-3 py-8 text-center text-[#94A3B8] font-bold print:text-black">لا توجد حركات مسجلة للمورد</td>
                       </tr>
                     )}
                   </tbody>
@@ -676,6 +868,136 @@ export default function Suppliers() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Printing Purchase Invoice Modal */}
+      {printingPurchase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/50 backdrop-blur-sm p-4 print:p-0 print:bg-white print:items-start print:block print:relative print:z-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:h-auto print:shadow-none print:rounded-none">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex justify-between items-center bg-[#F8FAFC] print:hidden">
+              <h3 className="font-bold text-lg text-[#1E293B] flex items-center gap-2">
+                <Printer className="w-5 h-5 text-[#2563EB]" />
+                طباعة فاتورة المشتريات
+              </h3>
+              <div className="flex items-center gap-3">
+                 <button 
+                    id="share-whatsapp-btn"
+                    onClick={handleSharePurchaseWhatsApp}
+                    disabled={isGeneratingImage}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#16A34A] text-white rounded-lg font-bold hover:bg-[#15803D] transition-colors cursor-pointer border-none shadow-sm test-sm disabled:opacity-70"
+                 >
+                   {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                   مشاركة واتساب
+                 </button>
+                 <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg font-bold hover:bg-[#1D4ED8] transition-colors cursor-pointer border-none shadow-sm test-sm">
+                   <Printer className="w-4 h-4" /> الطباعة الآن
+                 </button>
+                 <button onClick={() => setPrintingPurchase(null)} className="text-[#94A3B8] hover:text-[#DC2626] transition-colors cursor-pointer bg-transparent border-none">
+                   <X className="w-6 h-6" />
+                 </button>
+              </div>
+            </div>
+            
+            <div id="purchase-invoice-printable-area" className="p-8 overflow-y-auto space-y-8 print:overflow-visible print:px-4 print:py-8 bg-white relative">
+              <div className="mb-8 border-b-2 border-[#E2E8F0] pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {businessProfile?.logo && (
+                      <img src={businessProfile.logo} alt="Logo" className="w-16 h-16 object-contain" />
+                    )}
+                    <div>
+                      <h1 className="text-3xl font-bold text-[#1E293B]">{businessProfile?.name || 'اسم الشركة'}</h1>
+                      <p className="text-sm font-bold text-[#475569] mt-2" dir="ltr">{businessProfile?.phone}</p>
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-4xl font-bold text-[#2563EB] mb-2 uppercase">فاتورة مشتريات</h2>
+                    <p className="text-sm font-bold text-[#475569]">
+                      رقم الفاتورة: <span className="text-[#1E293B] font-mono">#{printingPurchase.id.slice(-6).toUpperCase()}</span>
+                    </p>
+                    <p className="text-sm font-bold text-[#475569] mt-1">
+                      التاريخ: <span className="text-[#1E293B] font-mono">{new Date(printingPurchase.date).toLocaleDateString('ar-EG')}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0] print:border-none print:px-0">
+                <h3 className="text-sm font-bold text-[#94A3B8] mb-1">بيانات المورد</h3>
+                {(() => {
+                  const s = suppliers.find(su => su.id === printingPurchase.supplierId);
+                  return (
+                    <div>
+                      <p className="font-bold text-lg text-[#1E293B]">{s?.name || 'غير متوفر'}</p>
+                      <p className="text-sm font-bold text-[#64748B] mt-1 font-mono">تليفون: {s?.phone || '-'}</p>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="mt-8">
+                <table className="w-full text-right border-collapse">
+                  <thead className="bg-[#F1F5F9] border-y-2 border-[#E2E8F0]">
+                    <tr>
+                      <th className="py-3 px-4 text-sm font-bold text-[#475569] print:text-black">م</th>
+                      <th className="py-3 px-4 text-sm font-bold text-[#475569] print:text-black">اسم الصنف والتفاصيل</th>
+                      <th className="py-3 px-4 text-sm font-bold text-[#475569] text-center print:text-black">الكمية</th>
+                      <th className="py-3 px-4 text-sm font-bold text-[#475569] text-center print:text-black">تكلفة الوحدة</th>
+                      <th className="py-3 px-4 text-sm font-bold text-[#475569] text-left print:text-black">الإجمالي</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {printingPurchase.items.map((item: any, idx: number) => {
+                      const invItem = inventory.find(i => i.id === item.itemId);
+                      return (
+                        <tr key={idx}>
+                          <td className="py-4 px-4 text-sm text-[#64748B] font-bold print:text-black">{idx + 1}</td>
+                          <td className="py-4 px-4 print:text-black">
+                            <span className="font-bold text-[#1E293B] block">{invItem ? invItem.name : 'صنف محذوف'}</span>
+                            {invItem && <span className="text-xs text-[#94A3B8] mt-1 font-mono">{invItem.code}</span>}
+                          </td>
+                          <td className="py-4 px-4 text-sm text-center font-bold text-[#475569] print:text-black" dir="ltr">{item.quantity}</td>
+                          <td className="py-4 px-4 text-sm text-center font-bold text-[#475569] print:text-black" dir="ltr">{item.unitPrice.toLocaleString()}</td>
+                          <td className="py-4 px-4 text-sm font-bold text-[#1E293B] text-left print:text-black" dir="ltr">{(item.quantity * item.unitPrice).toLocaleString()} ج.م</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-8 flex justify-end">
+                <div className="w-full max-w-sm space-y-3">
+                  <div className="flex justify-between items-center text-lg">
+                    <span className="font-bold text-[#475569] print:text-black">الإجمالي النهائي:</span>
+                    <span className="font-bold text-2xl text-[#1E293B] print:text-black" dir="ltr">{printingPurchase.total.toLocaleString()} <span className="text-sm">ج.م</span></span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm pt-3 border-t border-[#E2E8F0] print:border-black/20">
+                    <span className="font-bold text-[#16A34A] print:text-black">المبلغ المدفوع:</span>
+                    <span className="font-bold text-[#16A34A] print:text-black" dir="ltr">{printingPurchase.paid.toLocaleString()} ج.م</span>
+                  </div>
+                  {printingPurchase.total - printingPurchase.paid > 0 && (
+                     <div className="flex justify-between items-center text-sm pt-3">
+                       <span className="font-bold text-[#DC2626] print:text-black">المبلغ المتبقي للآجل:</span>
+                       <span className="font-bold text-[#DC2626] print:text-black" dir="ltr">{(printingPurchase.total - printingPurchase.paid).toLocaleString()} ج.م</span>
+                     </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-12 pt-8 border-t border-[#E2E8F0] flex justify-between text-xs font-bold text-[#94A3B8] print:text-black/50">
+                <p>توقيع المستلم: ...............................</p>
+                <p>توقيع المورد: ...............................</p>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex justify-end print:hidden">
+               <button onClick={() => setPrintingPurchase(null)} className="px-6 py-2.5 bg-white border border-[#E2E8F0] text-[#1E293B] rounded-xl font-bold hover:bg-[#F1F5F9] transition-colors cursor-pointer">
+                 إغلاق النافذة
+               </button>
+            </div>
           </div>
         </div>
       )}

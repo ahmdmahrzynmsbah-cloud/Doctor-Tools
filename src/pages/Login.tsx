@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Wrench } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent | React.KeyboardEvent | React.MouseEvent) => {
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
     setError('');
     
     if (!password) {
@@ -23,6 +27,8 @@ export default function Login() {
 
     if (!result.success && result.error) {
       setError(result.error);
+    } else {
+      navigate('/', { replace: true });
     }
   };
 
@@ -42,21 +48,25 @@ export default function Login() {
         <div className="bg-[#F8FAFC] rounded-xl p-6 border border-[#E2E8F0] mb-8">
           <p className="text-[#1E293B] font-bold text-center mb-4">تسجيل الدخول للموظفين والإدارة</p>
           
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-[#475569] mb-1">كلمة المرور</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSubmit(e as any);
+                  }
+                }}
                 className="w-full border border-[#E2E8F0] rounded-lg px-4 py-3 bg-[#F1F5F9] focus:ring-2 focus:ring-[#2180B2] focus:outline-none"
                 placeholder="أدخل كلمة المرور (admin)..."
-                required
               />
             </div>
             
             <button
-              type="submit"
+              onClick={handleSubmit}
               disabled={isLoading}
               className="w-full bg-[#2180B2] text-white font-bold py-3 px-4 rounded-xl hover:bg-[#1A6B94] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
             >
@@ -66,7 +76,7 @@ export default function Login() {
                  <span>دخول النظام</span>
               )}
             </button>
-          </form>
+          </div>
         </div>
 
         {error && (

@@ -12,7 +12,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const login = async (pass: string) => {
-    if (pass === 'admin') {
+    if (pass.trim().toLowerCase() === 'admin') {
       setIsAuthenticated(true);
       return { success: true };
     }
