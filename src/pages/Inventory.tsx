@@ -53,6 +53,7 @@ export default function Inventory() {
   const openAdd = () => {
     setEditingItem(null);
     setFormData({ code: generateAutoCode(), name: '', brand: '', compatibleCars: '', category: categories[0] || '', storageLocation: '', quantity: 0, purchasePrice: 0, sellPrice: 0 });
+    setError('');
     setIsModalOpen(true);
   };
 
@@ -60,17 +61,41 @@ export default function Inventory() {
   const openEdit = (item: InventoryItem) => {
     setEditingItem(item);
     setFormData({ ...item });
+    setError('');
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [error, setError] = useState<string>('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingItem) {
-      updateInventoryItem(editingItem.id, formData);
-    } else {
-      addInventoryItem(formData);
+    setError('');
+
+    if (!formData.code?.trim()) {
+      setError('الرجاء إدخال رمز الباركود / الكود');
+      return;
     }
-    setIsModalOpen(false);
+    if (!formData.name?.trim()) {
+      setError('الرجاء إدخال اسم القطعة');
+      return;
+    }
+    if (!formData.category) {
+      setError('الرجاء اختيار التصنيف (الفئة)');
+      return;
+    }
+
+    try {
+      if (editingItem) {
+        await updateInventoryItem(editingItem.id, formData);
+      } else {
+        const itemToAdd = { ...formData };
+        await addInventoryItem(itemToAdd);
+      }
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error(err);
+      setError('حدث خطأ أثناء حفظ الصنف: ' + err?.message);
+    }
   };
 
   const handleAddCategory = () => {
@@ -234,19 +259,24 @@ export default function Inventory() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
+              {error && (
+                <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm font-bold border border-red-200">
+                  {error}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">رمز الباركود / الكود</label>
-                  <input required type="text" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-[#F8FAFC]" dir="ltr" />
+                  <input type="text" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-[#F8FAFC]" dir="ltr" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">الكمية الحالية</label>
-                  <input required type="number" min="0" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
+                  <input type="number" min="0" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
 
                 <div className="sm:col-span-2 space-y-1">
                   <label className="text-sm font-bold text-[#475569]">اسم القطعة</label>
-                  <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
+                  <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none" />
                 </div>
                 
                 <div className="space-y-1">
@@ -260,7 +290,7 @@ export default function Inventory() {
 
                 <div className="space-y-1">
                   <label className="text-sm font-bold text-[#475569]">التصنيف (الفئة)</label>
-                  <select required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-white">
+                  <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border border-[#E2E8F0] rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-[#2180B2] focus:outline-none bg-white">
                     <option value="">-- اختر الفئة --</option>
                     {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
@@ -273,14 +303,14 @@ export default function Inventory() {
                 <div className="space-y-1 p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
                   <label className="text-sm font-bold text-[#475569]">سعر الشراء</label>
                   <div className="flex items-center gap-2 mt-1">
-                    <input required type="number" min="0" value={formData.purchasePrice} onChange={e => setFormData({...formData, purchasePrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none" />
+                    <input type="number" min="0" value={formData.purchasePrice} onChange={e => setFormData({...formData, purchasePrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none" />
                     <span className="text-xs font-bold text-[#94A3B8]">ج.م</span>
                   </div>
                 </div>
                 <div className="space-y-1 p-3 bg-[#F0FDF4] rounded-xl border border-[#BBF7D0]">
                   <label className="text-sm font-bold text-[#16A34A]">سعر البيع</label>
                   <div className="flex items-center gap-2 mt-1">
-                    <input required type="number" min="0" value={formData.sellPrice} onChange={e => setFormData({...formData, sellPrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none font-bold" />
+                    <input type="number" min="0" value={formData.sellPrice} onChange={e => setFormData({...formData, sellPrice: Number(e.target.value)})} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-1.5 focus:outline-none font-bold" />
                     <span className="text-xs font-bold text-[#16A34A]">ج.م</span>
                   </div>
                 </div>

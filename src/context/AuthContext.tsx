@@ -19,7 +19,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: false, error: 'كلمة المرور غير صحيحة. (استخدم: admin)' };
   };
 
-  const logout = () => setIsAuthenticated(false);
+  const logout = () => {
+    setIsAuthenticated(false);
+  };
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
@@ -30,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;

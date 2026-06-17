@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { useAuth } from '@/src/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { Wrench } from 'lucide-react';
 
 export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +17,9 @@ export default function Login() {
       return;
     }
 
+    setIsLoading(true);
     const result = await login(password);
+    setIsLoading(false);
 
     if (!result.success && result.error) {
       setError(result.error);
@@ -24,39 +27,58 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F0F4F8]" dir="rtl">
-      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-[#E2E8F0]">
-        <div className="flex flex-col items-center justify-center mb-8">
-          <div className="w-16 h-16 bg-[#2180B2] rounded-2xl flex items-center justify-center mb-4 shadow-md">
-            <Wrench className="w-8 h-8 text-white" />
+    <div className="min-h-screen bg-[#F0F4F8] flex items-center justify-center p-4 font-cairo" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[#2180B2] to-[#2ECC71]"></div>
+        
+        <div className="flex flex-col items-center justify-center text-center mt-6 mb-8">
+          <div className="w-20 h-20 bg-gradient-to-br from-[#2180B2] to-[#1A6B94] rounded-2xl flex items-center justify-center mb-5 shadow-lg transform rotate-3">
+            <Wrench className="w-10 h-10 text-white -rotate-3" />
           </div>
-          <h1 className="text-2xl font-bold text-[#1E293B]">AutoServ Pro</h1>
-          <p className="text-[#475569] text-sm mt-1">تسجيل دخول الإدارة</p>
+          <h1 className="text-3xl font-black text-[#1E293B] tracking-tight">AutoServ <span className="text-[#2180B2]">Pro</span></h1>
+          <p className="text-[#475569] font-medium mt-2">نظام إدارة مراكز صيانة السيارات</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-[#475569] mb-1">كلمة المرور</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-[#E2E8F0] rounded-lg px-4 py-3 bg-[#F1F5F9] focus:ring-2 focus:ring-[#2180B2] focus:outline-none"
-              placeholder="أدخل كلمة المرور (admin)..."
-              required
-            />
-            {error && <p className="text-[#DC2626] text-xs mt-2 font-bold text-center">{error}</p>}
-          </div>
+        <div className="bg-[#F8FAFC] rounded-xl p-6 border border-[#E2E8F0] mb-8">
+          <p className="text-[#1E293B] font-bold text-center mb-4">تسجيل الدخول للموظفين والإدارة</p>
+          
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-[#475569] mb-1">كلمة المرور</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-[#E2E8F0] rounded-lg px-4 py-3 bg-[#F1F5F9] focus:ring-2 focus:ring-[#2180B2] focus:outline-none"
+                placeholder="أدخل كلمة المرور (admin)..."
+                required
+              />
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-[#2180B2] text-white font-bold py-3 px-4 rounded-xl hover:bg-[#1A6B94] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                 <div className="w-5 h-5 border-2 border-white border-t-transparent flex-shrink-0 animate-spin rounded-full"></div>
+              ) : (
+                 <span>دخول النظام</span>
+              )}
+            </button>
+          </form>
+        </div>
 
-          <button
-            type="submit"
-            className="w-full bg-[#2180B2] text-white font-bold py-3 rounded-lg hover:bg-[#1A6B94] transition-colors cursor-pointer block"
-          >
-            دخول النظام
-          </button>
-        </form>
+        {error && (
+          <div className="mt-4 p-3 bg-[#FEF2F2] border border-[#FCA5A5] rounded-xl text-center">
+            <p className="text-[#DC2626] text-sm font-bold">{error}</p>
+          </div>
+        )}
+      </div>
+      
+      <div className="fixed bottom-4 text-center w-full text-[#94A3B8] text-xs font-medium">
+        © 2026 AutoServ Pro - جميع الحقوق محفوظة
       </div>
     </div>
   );
 }
-

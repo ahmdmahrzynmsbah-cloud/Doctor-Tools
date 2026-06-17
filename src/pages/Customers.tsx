@@ -27,14 +27,19 @@ export default function Customers() {
     );
   }, [customers, searchTerm]);
 
-  const handleAddCustomer = (e: React.FormEvent) => {
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingCustomer) {
-      updateCustomer(editingCustomer.id, newCustomer);
-    } else {
-      addCustomer(newCustomer);
+    try {
+      if (editingCustomer) {
+        await updateCustomer(editingCustomer.id, newCustomer);
+      } else {
+        await addCustomer(newCustomer);
+      }
+      closeModal();
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ: ' + String(err));
     }
-    closeModal();
   };
 
   const closeModal = () => {

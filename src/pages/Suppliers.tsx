@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart, History, Edit2, Trash2, Banknote, Printer } from 'lucide-react';
+import { Plus, Search, X, Factory, ArrowDownToLine, ShoppingCart, History, Edit2, Trash2, Banknote, Printer, Share2, Loader2, MessageCircle } from 'lucide-react';
 import { useAppData, Supplier } from '@/src/context/AppDataContext';
+import html2canvas from 'html2canvas';
 
 export default function Suppliers() {
   const { suppliers, purchases, inventory, addSupplier, updateSupplier, deleteSupplier, createPurchase, recordSupplierPayment } = useAppData();
@@ -18,6 +19,7 @@ export default function Suppliers() {
   const [paidAmount, setPaidAmount] = useState(0);
 
   const [selectedSupplierHistory, setSelectedSupplierHistory] = useState<Supplier | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   const [newSupplier, setNewSupplier] = useState({
     name: '', phone: '', balance: 0
@@ -84,6 +86,96 @@ export default function Suppliers() {
 
   const handlePrintStatement = () => {
     window.print();
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!selectedSupplierHistory) return;
+    
+    if (!selectedSupplierHistory.phone) {
+      alert("المورد ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      const element = document.getElementById('supplier-statement-printable-area');
+      if (!element) return;
+      
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: '#ffffff'
+      });
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsGeneratingImage(false);
+          return;
+        }
+        
+        try {
+          const file = new File([blob], `statement_${selectedSupplierHistory.name}.png`, { type: 'image/png' });
+          const textMsg = `مرحباً بك،\nمرفق كشف حساب تفصيلي خاص بك.`;
+          
+          let phone = selectedSupplierHistory.phone;
+          if (phone.startsWith('0')) {
+              phone = '2' + phone.substring(1);
+          } else if (!phone.startsWith('2')) {
+              phone = '2' + phone;
+          }
+
+          // 1. Try Native Mobile/Desktop Share First
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: `كشف حساب - ${selectedSupplierHistory.name}`,
+                text: textMsg
+              });
+              return;
+            } catch (shareError: any) {
+              if (shareError.name !== "AbortError") {
+                console.log('Share failed', shareError);
+              } else {
+                return;
+              }
+            }
+          }
+
+          // 2. Fallback: Try to use Clipboard for Desktop Computers
+          let isCopied = false;
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            isCopied = true;
+          } catch (clipboardError) {
+            console.log('Clipboard write failed', clipboardError);
+          }
+
+          if (isCopied) {
+            alert('تم نسخ صورة الكشف بنجاح! 📋\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء عمل "لصق" (Paste) لإرسال الصورة مباشرةً للمورد.\n- اختصار اللصق (Ctrl+V) أو (Cmd+V).');
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          } else {
+            // 3. Ultimate Fallback: Download file and open WA
+            alert('تم تصدير وتحميل صورة الكشف 📥\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء إرفاق الصورة التي تم تحميلها للتو داخل المحادثة.');
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `كشف_حساب_مورد_${selectedSupplierHistory.name}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          }
+        } catch (error) {
+          console.error("Error sharing:", error);
+        } finally {
+          setIsGeneratingImage(false);
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error(err);
+      setIsGeneratingImage(false);
+    }
   };
 
   const filteredSuppliers = useMemo(() => {
@@ -253,6 +345,18 @@ export default function Suppliers() {
                           <History className="w-4 h-4" />
                           السجل
                         </button>
+                        {supplier.phone && (
+                          <a
+                            href={`https://wa.me/2${supplier.phone.startsWith('0') ? supplier.phone.substring(1) : supplier.phone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center justify-center w-8 h-8 bg-[#E6F4EA] border border-[#CEEAD6] text-[#137333] rounded-lg hover:bg-[#CEEAD6] transition-colors cursor-pointer"
+                            title="مراسلة عبر واتساب"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        )}
                         {supplier.balance > 0 && (
                           <button 
                             onClick={(e) => {
@@ -304,6 +408,14 @@ export default function Suppliers() {
                 سجل المشتريات المتبادلة
               </h3>
               <div className="flex items-center gap-3">
+                 <button 
+                   onClick={handleShareWhatsApp} 
+                   disabled={isGeneratingImage || !selectedSupplierHistory.phone}
+                   className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#16A34A] text-white rounded-lg font-bold text-xs hover:bg-[#15803D] transition-colors border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                    {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                    مشاركة {selectedSupplierHistory.phone ? 'واتساب' : '(لا يوجد رقم)'}
+                 </button>
                  <button onClick={handlePrintStatement} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg font-bold text-xs hover:bg-[#1D4ED8] transition-colors border-none cursor-pointer">
                     <Printer className="w-4 h-4" />
                     طباعة
@@ -314,7 +426,7 @@ export default function Suppliers() {
               </div>
             </div>
             
-            <div className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2">
+            <div id="supplier-statement-printable-area" className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2 bg-white">
               <div className="text-center hidden print:block mb-6 pt-4 border-b pb-4">
                 <h2 className="text-2xl font-bold text-[#1E293B]">كشف حساب مورد</h2>
                 <div className="text-sm text-[#475569] mt-1 space-x-4 space-x-reverse">

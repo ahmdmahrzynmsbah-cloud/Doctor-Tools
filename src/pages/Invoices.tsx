@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Search, FileText, X, Printer, Edit, Trash2, ListStart, List, Barcode, Receipt, Save, Download } from 'lucide-react';
+import { Plus, Search, FileText, X, Printer, Edit, Trash2, ListStart, List, Barcode, Receipt, Save, Download, MessageCircle, Share2, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useAppData } from '@/src/context/AppDataContext';
 import InvoicePrint from '../components/InvoicePrint';
@@ -13,6 +13,7 @@ export default function Invoices() {
   
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<string | null>(null);
+  const [autoShareInvoiceId, setAutoShareInvoiceId] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
 
   // Form State
@@ -31,8 +32,12 @@ export default function Invoices() {
 
   const [showDetailsAndPrices, setShowDetailsAndPrices] = useState(true);
   const [autoScannerActive, setAutoScannerActive] = useState(true);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
+
+  const printingInvoice = printingInvoiceId ? invoices.find(i => i.id === printingInvoiceId) : null;
+  const printingCustomer = printingInvoice ? customers.find(c => c.id === printingInvoice.customerId) : undefined;
 
   const downloadAsImage = async () => {
     if (!printRef.current || !printingInvoice) return;
@@ -52,6 +57,103 @@ export default function Invoices() {
     } catch (err) {
       console.error('Error downloading invoice:', err);
       alert('حدث خطأ أثناء محاولة حفظ الفاتورة كصورة');
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!printRef.current || !printingInvoice || !printingCustomer) return;
+    
+    if (!printingCustomer.phone) {
+      alert("العميل ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsGeneratingImage(false);
+          return;
+        }
+        
+        try {
+          const file = new File([blob], `invoice_${printingInvoice.invoiceNumber}.png`, { type: 'image/png' });
+          const textMsg = `مرحباً بك،\nمرفق فاتورة برقم: ${printingInvoice.invoiceNumber}.`;
+          
+          let phone = printingCustomer.phone;
+          if (phone.startsWith('0')) {
+              phone = '2' + phone.substring(1);
+          } else if (!phone.startsWith('2')) {
+              phone = '2' + phone;
+          }
+
+          // 1. Try Native Mobile/Desktop Share First
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: `فاتورة - ${printingInvoice.invoiceNumber}`,
+                text: textMsg
+              });
+              return;
+            } catch (shareError: any) {
+              if (shareError.name !== "AbortError") {
+                console.log('Share failed', shareError);
+              } else {
+                return;
+              }
+            }
+          }
+
+          // 2. Fallback: Try to use Clipboard for Desktop Computers
+          let isCopied = false;
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            isCopied = true;
+          } catch (clipboardError) {
+            console.log('Clipboard write failed', clipboardError);
+          }
+
+          if (isCopied) {
+            alert('تم نسخ صورة الفاتورة بنجاح! 📋\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء عمل "لصق" (Paste) لإرسال الصورة مباشرةً للعميل.\n- اختصار اللصق (Ctrl+V) أو (Cmd+V).');
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          } else {
+            // 3. Ultimate Fallback: Download file and open WA
+            alert('تم تصدير وتحميل صورة الفاتورة 📥\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء إرفاق الصورة التي تم تحميلها للتو داخل المحادثة.');
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `invoice_${printingInvoice.invoiceNumber}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          }
+        } catch (error) {
+          console.error("Error sharing:", error);
+        } finally {
+          setIsGeneratingImage(false);
+          if (autoShareInvoiceId) {
+             setPrintingInvoiceId(null);
+             setAutoShareInvoiceId(null);
+          }
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error(err);
+      setIsGeneratingImage(false);
+      if (autoShareInvoiceId) {
+         setPrintingInvoiceId(null);
+         setAutoShareInvoiceId(null);
+      }
     }
   };
 
@@ -129,6 +231,9 @@ export default function Invoices() {
 
   useEffect(() => {
     if (printingInvoiceId) {
+      if (autoShareInvoiceId === printingInvoiceId) {
+        return; // Don't print if we're auto-sharing
+      }
       const handleAfterPrint = () => {
         setPrintingInvoiceId(null);
       };
@@ -143,7 +248,17 @@ export default function Invoices() {
         clearTimeout(timer);
       };
     }
-  }, [printingInvoiceId]);
+  }, [printingInvoiceId, autoShareInvoiceId]);
+
+  useEffect(() => {
+    if (autoShareInvoiceId && printingInvoiceId === autoShareInvoiceId) {
+      // Small delay to allow the DOM/images to fully render before sharing
+      const timer = setTimeout(async () => {
+        await handleShareWhatsApp();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [autoShareInvoiceId, printingInvoiceId]);
 
   const handleEditClick = (invoiceId: string) => {
     const inv = invoices.find(i => i.id === invoiceId);
@@ -276,13 +391,10 @@ export default function Invoices() {
     setItemSearchText('');
   };
 
-  const printingInvoice = printingInvoiceId ? invoices.find(i => i.id === printingInvoiceId) : null;
-  const printingCustomer = printingInvoice ? customers.find(c => c.id === printingInvoice.customerId) : undefined;
-
   return (
     <>
       {printingInvoice && (
-        <div className="fixed inset-0 z-50 bg-[#F1F5F9] overflow-y-auto print:bg-white print:p-0">
+        <div className={`fixed inset-0 z-50 overflow-y-auto print:bg-white print:p-0 ${autoShareInvoiceId ? 'opacity-0 pointer-events-none' : 'bg-[#F1F5F9]'}`}>
           <div className="p-4 flex gap-4 justify-center border-b border-[#E2E8F0] print:hidden bg-white shadow-sm sticky top-0 z-10">
             <button 
               onClick={() => {
@@ -292,6 +404,14 @@ export default function Invoices() {
             >
               <Printer className="w-5 h-5" />
               طباعة الفاتورة
+            </button>
+            <button 
+              onClick={handleShareWhatsApp}
+              disabled={isGeneratingImage || !printingCustomer?.phone}
+              className="px-6 py-2 bg-[#25D366] text-white rounded-lg font-bold hover:bg-[#1DA851] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isGeneratingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : <Share2 className="w-5 h-5" />}
+              مشاركة {printingCustomer?.phone ? 'واتساب' : '(لا يوجد رقم)'}
             </button>
             <button 
               onClick={downloadAsImage}
@@ -653,6 +773,24 @@ export default function Invoices() {
                             {inv.paid === 0 && <span className="px-2 py-1 rounded-md text-[11px] font-bold bg-[#FEF2F2] text-[#DC2626] whitespace-nowrap">آجل بالكامل</span>}
                           </td>
                           <td className="px-6 py-4 flex items-center justify-center gap-2">
+                            {customer?.phone && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAutoShareInvoiceId(inv.id);
+                                  setPrintingInvoiceId(inv.id);
+                                }}
+                                className="p-1.5 inline-flex items-center justify-center text-[#137333] bg-[#E6F4EA] border border-[#CEEAD6] rounded-md hover:bg-[#CEEAD6] transition-colors cursor-pointer"
+                                title="إرسال الفاتورة عبر واتساب"
+                              >
+                                {isGeneratingImage && autoShareInvoiceId === inv.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <MessageCircle className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
                             <button 
                               onClick={() => setPrintingInvoiceId(inv.id)}
                               className="p-1.5 text-[#475569] bg-white border border-[#E2E8F0] rounded-md hover:text-[#2180B2] hover:border-[#2180B2] transition-colors cursor-pointer"

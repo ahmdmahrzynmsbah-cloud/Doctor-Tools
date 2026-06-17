@@ -1,5 +1,36 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { db } from '../lib/firebase';
+import { collection, doc, onSnapshot, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: 'main_store'
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // Don't throw for now to avoid crashing the app if permissions aren't set yet
+}
 
 export type InventoryItem = {
   id: string;
@@ -12,6 +43,8 @@ export type InventoryItem = {
   quantity: number;
   purchasePrice: number;
   sellPrice: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type Customer = {
@@ -19,14 +52,18 @@ export type Customer = {
   serialNumber: string;
   name: string;
   phone: string;
-  balance: number; // positive means they owe us
+  balance: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type Supplier = {
   id: string;
   name: string;
   phone: string;
-  balance: number; // positive means we owe them
+  balance: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type TransactionItem = {
@@ -43,6 +80,8 @@ export type Invoice = {
   items: TransactionItem[];
   total: number;
   paid: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type PurchaseOrder = {
@@ -52,6 +91,8 @@ export type PurchaseOrder = {
   items: TransactionItem[];
   total: number;
   paid: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type AppNotification = {
@@ -59,6 +100,8 @@ export type AppNotification = {
   message: string;
   date: string;
   read: boolean;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type BusinessProfile = {
@@ -66,6 +109,13 @@ export type BusinessProfile = {
   phone: string;
   address: string;
   logo: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+type Category = {
+  id: string;
+  name: string;
 };
 
 type AppDataContextType = {
@@ -78,89 +128,86 @@ type AppDataContextType = {
   notifications: AppNotification[];
   businessProfile: BusinessProfile;
   
-  addInventoryItem: (item: Omit<InventoryItem, 'id'>) => void;
-  updateInventoryItem: (id: string, item: Omit<InventoryItem, 'id'>) => void;
-  deleteInventoryItem: (id: string) => void;
+  addInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<void>;
+  updateInventoryItem: (id: string, item: Omit<InventoryItem, 'id'>) => Promise<void>;
+  deleteInventoryItem: (id: string) => Promise<void>;
   
-  addCategory: (category: string) => void;
-  removeCategory: (category: string) => void;
+  addCategory: (category: string) => Promise<void>;
+  removeCategory: (category: string) => Promise<void>;
   
-  addCustomer: (customer: Omit<Customer, 'id' | 'serialNumber'>) => void;
-  updateCustomer: (id: string, customer: Omit<Customer, 'id' | 'serialNumber'>) => void;
-  deleteCustomer: (id: string) => void;
-  addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
-  updateSupplier: (id: string, supplier: Omit<Supplier, 'id'>) => void;
-  deleteSupplier: (id: string) => void;
+  addCustomer: (customer: Omit<Customer, 'id' | 'serialNumber'>) => Promise<void>;
+  updateCustomer: (id: string, customer: Omit<Customer, 'id' | 'serialNumber'>) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
+  addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<void>;
+  updateSupplier: (id: string, supplier: Omit<Supplier, 'id'>) => Promise<void>;
+  deleteSupplier: (id: string) => Promise<void>;
   
-  createInvoice: (invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => void;
-  updateInvoice: (id: string, invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => void;
-  deleteInvoice: (id: string) => void;
+  createInvoice: (invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => Promise<void>;
+  updateInvoice: (id: string, invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => Promise<void>;
+  deleteInvoice: (id: string) => Promise<void>;
   
-  createPurchase: (purchase: Omit<PurchaseOrder, 'id'>) => void;
-  recordCustomerPayment: (customerId: string, amount: number) => void;
-  recordSupplierPayment: (supplierId: string, amount: number) => void;
+  createPurchase: (purchase: Omit<PurchaseOrder, 'id'>) => Promise<void>;
+  recordCustomerPayment: (customerId: string, amount: number) => Promise<void>;
+  recordSupplierPayment: (supplierId: string, amount: number) => Promise<void>;
   
-  markAllNotificationsRead: () => void;
-  updateBusinessProfile: (profile: BusinessProfile) => void;
+  markAllNotificationsRead: () => Promise<void>;
+  updateBusinessProfile: (profile: BusinessProfile) => Promise<void>;
 };
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 
-const loadData = <T,>(key: string, defaultValue: T): T => {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : defaultValue;
-};
-
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [categories, setCategories] = useState<string[]>(() => loadData('categories', ["فلاتر", "فرامل", "كهرباء", "زيوت", "إطارات", "عادم", "تعليق", "أخرى"]));
-  const [inventory, setInventory] = useState<InventoryItem[]>(() => loadData('inventory', []));
-  const [customers, setCustomers] = useState<Customer[]>(() => loadData('customers', []));
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => loadData('suppliers', []));
-  const [invoices, setInvoices] = useState<Invoice[]>(() => loadData('invoices', []));
-  const [purchases, setPurchases] = useState<PurchaseOrder[]>(() => loadData('purchases', []));
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => loadData('notifications', []));
-  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => loadData('businessProfile', {
+  const uid = 'main_store';
+
+  const [categories, setCategories] = useState<string[]>(["فلاتر", "فرامل", "كهرباء", "زيوت", "إطارات", "عادم", "تعليق", "أخرى"]);
+
+  const [categoriesDocs, setCategoriesDocs] = useState<Category[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
     name: 'AutoServ Pro',
     phone: '01000000000',
     address: 'القاهرة، شارع التسعين',
     logo: null
-  }));
-
-  const { isAuthenticated } = useAuth();
+  });
 
   useEffect(() => {
-    localStorage.setItem('categories', JSON.stringify(categories));
-  }, [categories]);
+    const unsubs = [
+      onSnapshot(doc(db, 'users', uid, 'profile', 'businessProfile'), (doc) => {
+        if (doc.exists()) setBusinessProfile(doc.data() as BusinessProfile);
+      }, (e) => handleFirestoreError(e, OperationType.GET, `users/${uid}/profile`)),
+      onSnapshot(collection(db, 'users', uid, 'categories'), (snap) => {
+        const cats = snap.docs.map(t => ({ id: t.id, name: t.data().name }));
+        setCategoriesDocs(cats);
+        if (cats.length > 0) setCategories(cats.map(c => c.name));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/categories`)),
+      onSnapshot(collection(db, 'users', uid, 'inventory'), (snap) => {
+        setInventory(snap.docs.map(d => ({ ...d.data(), id: d.id } as InventoryItem)));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/inventory`)),
+      onSnapshot(collection(db, 'users', uid, 'customers'), (snap) => {
+        setCustomers(snap.docs.map(d => ({ ...d.data(), id: d.id } as Customer)));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/customers`)),
+      onSnapshot(collection(db, 'users', uid, 'suppliers'), (snap) => {
+        setSuppliers(snap.docs.map(d => ({ ...d.data(), id: d.id } as Supplier)));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/suppliers`)),
+      onSnapshot(collection(db, 'users', uid, 'invoices'), (snap) => {
+        setInvoices(snap.docs.map(d => ({ ...d.data(), id: d.id } as Invoice)).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/invoices`)),
+      onSnapshot(collection(db, 'users', uid, 'purchases'), (snap) => {
+        setPurchases(snap.docs.map(d => ({ ...d.data(), id: d.id } as PurchaseOrder)).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/purchases`)),
+      onSnapshot(collection(db, 'users', uid, 'notifications'), (snap) => {
+        setNotifications(snap.docs.map(d => ({ ...d.data(), id: d.id } as AppNotification)));
+      }, (e) => handleFirestoreError(e, OperationType.LIST, `users/${uid}/notifications`))
+    ];
 
-  useEffect(() => {
-    localStorage.setItem('inventory', JSON.stringify(inventory));
-  }, [inventory]);
+    return () => unsubs.forEach(unsub => unsub());
+  }, [uid]);
 
-  useEffect(() => {
-    localStorage.setItem('customers', JSON.stringify(customers));
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem('suppliers', JSON.stringify(suppliers));
-  }, [suppliers]);
-
-  useEffect(() => {
-    localStorage.setItem('invoices', JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem('purchases', JSON.stringify(purchases));
-  }, [purchases]);
-
-  useEffect(() => {
-    localStorage.setItem('notifications', JSON.stringify(notifications));
-  }, [notifications]);
-
-  useEffect(() => {
-    localStorage.setItem('businessProfile', JSON.stringify(businessProfile));
-  }, [businessProfile]);
-
-  // Derived low stock notifications
   const lowStockThreshold = 10;
   const currentNotifications = useMemo(() => {
     const lowStockAlerts = inventory
@@ -175,198 +222,276 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return [...notifications, ...lowStockAlerts];
   }, [inventory, notifications]);
 
-  const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
-    const newItem = { ...item, id: crypto.randomUUID() };
-    setInventory(prev => [...prev, newItem]);
-  };
-  
-  const updateInventoryItem = (id: string, item: Omit<InventoryItem, 'id'>) => {
-    setInventory(prev => prev.map(i => i.id === id ? { ...item, id } : i));
-  };
-  
-  const deleteInventoryItem = (id: string) => {
-    setInventory(prev => prev.filter(i => i.id !== id));
-  };
-
-  const addCategory = (category: string) => {
-    if (!categories.includes(category) && category.trim()) {
-      setCategories(prev => [...prev, category.trim()]);
+  const addInventoryItem = async (item: Omit<InventoryItem, 'id'>) => {
+    try {
+      // Remove any undefined properties and replace with defaults to prevent Firebase error
+      const cleanedItem = Object.fromEntries(
+        Object.entries(item).map(([k, v]) => [k, v === undefined ? '' : v])
+      );
+      
+      const newRef = doc(collection(db, 'users', uid, 'inventory'));
+      await setDoc(newRef, { ...cleanedItem, ownerId: uid, createdAt: Date.now(), updatedAt: Date.now() });
+    } catch (e: any) {
+      console.error('Error adding inventory item:', e);
+      throw new Error(e?.message || 'فشل في حفظ المنتج في قاعدة البيانات.');
     }
   };
   
-  const removeCategory = (category: string) => {
-    setCategories(prev => prev.filter(c => c !== category));
+  const updateInventoryItem = async (id: string, item: Omit<InventoryItem, 'id'>) => {
+    try {
+      const cleanedItem = Object.fromEntries(
+        Object.entries(item).map(([k, v]) => [k, v === undefined ? '' : v])
+      );
+      await setDoc(doc(db, 'users', uid, 'inventory', id), { ...cleanedItem, ownerId: uid, updatedAt: Date.now() }, { merge: true });
+    } catch (e: any) {
+      console.error(e);
+      throw new Error(e?.message || 'فشل في تعديل المنتج.');
+    }
+  };
+  
+  const deleteInventoryItem = async (id: string) => {
+    await deleteDoc(doc(db, 'users', uid, 'inventory', id));
   };
 
-  const addCustomer = (customer: Omit<Customer, 'id' | 'serialNumber'>) => {
-    const serialNumber = `CUST-${1000 + customers.length + 1}`;
-    setCustomers(prev => [...prev, { ...customer, id: crypto.randomUUID(), serialNumber }]);
+  const addCategory = async (category: string) => {
+    if (!categories.includes(category) && category.trim()) {
+      const newRef = doc(collection(db, 'users', uid, 'categories'));
+      await setDoc(newRef, { ownerId: uid, name: category.trim(), createdAt: Date.now(), updatedAt: Date.now() });
+    }
+  };
+  
+  const removeCategory = async (categoryName: string) => {
+    const cat = categoriesDocs.find(c => c.name === categoryName);
+    if (cat) {
+      await deleteDoc(doc(db, 'users', uid, 'categories', cat.id));
+    }
   };
 
-  const updateCustomer = (id: string, customer: Omit<Customer, 'id' | 'serialNumber'>) => {
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...customer } : c));
+  const addCustomer = async (customer: Omit<Customer, 'id' | 'serialNumber'>) => {
+    try {
+      const serialNumber = `CUST-${1000 + customers.length + 1}`;
+      const newRef = doc(collection(db, 'users', uid, 'customers'));
+      await setDoc(newRef, { ...customer, ownerId: uid, serialNumber, createdAt: Date.now(), updatedAt: Date.now() });
+      console.log('Customer added successfully:', newRef.id);
+    } catch(e) {
+      console.error('Error adding customer:', e);
+      alert('Error adding customer: ' + String(e));
+      throw e;
+    }
   };
 
-  const deleteCustomer = (id: string) => {
-    setCustomers(prev => prev.filter(c => c.id !== id));
+  const updateCustomer = async (id: string, customer: Omit<Customer, 'id' | 'serialNumber'>) => {
+    await setDoc(doc(db, 'users', uid, 'customers', id), { ...customer, ownerId: uid, updatedAt: Date.now() }, { merge: true });
   };
 
-  const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
-    setSuppliers(prev => [...prev, { ...supplier, id: crypto.randomUUID() }]);
+  const deleteCustomer = async (id: string) => {
+    await deleteDoc(doc(db, 'users', uid, 'customers', id));
   };
 
-  const updateSupplier = (id: string, supplier: Omit<Supplier, 'id'>) => {
-    setSuppliers(prev => prev.map(s => s.id === id ? { ...s, ...supplier } : s));
+  const addSupplier = async (supplier: Omit<Supplier, 'id'>) => {
+    const newRef = doc(collection(db, 'users', uid, 'suppliers'));
+    await setDoc(newRef, { ...supplier, ownerId: uid, createdAt: Date.now(), updatedAt: Date.now() });
   };
 
-  const deleteSupplier = (id: string) => {
-    setSuppliers(prev => prev.filter(s => s.id !== id));
+  const updateSupplier = async (id: string, supplier: Omit<Supplier, 'id'>) => {
+    await setDoc(doc(db, 'users', uid, 'suppliers', id), { ...supplier, ownerId: uid, updatedAt: Date.now() }, { merge: true });
   };
 
-  const createInvoice = (invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => {
+  const deleteSupplier = async (id: string) => {
+    await deleteDoc(doc(db, 'users', uid, 'suppliers', id));
+  };
+
+  const createInvoice = async (invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => {
     const invoiceNumber = `INV-${1000 + invoices.length + 1}`;
-    const newInvoice = { ...invoice, id: crypto.randomUUID(), invoiceNumber };
-    setInvoices(prev => [newInvoice, ...prev]);
+    const newRef = doc(collection(db, 'users', uid, 'invoices'));
+    const batch = writeBatch(db);
     
-    // Update Inventory
-    setInventory(prev => prev.map(item => {
-      const soldItem = invoice.items.find(i => i.itemId === item.id);
-      return soldItem ? { ...item, quantity: item.quantity - soldItem.quantity } : item;
-    }));
+    batch.set(newRef, { ...invoice, ownerId: uid, invoiceNumber, createdAt: Date.now(), updatedAt: Date.now() });
+    
+    for (const item of invoice.items) {
+      const invRef = doc(db, 'users', uid, 'inventory', item.itemId);
+      const currentItem = inventory.find(i => i.id === item.itemId);
+      if (currentItem) {
+        batch.update(invRef, { quantity: currentItem.quantity - item.quantity, updatedAt: Date.now() });
+      }
+    }
 
-    // Update Customer Balance
     const remaining = invoice.total - invoice.paid;
     if (remaining !== 0) {
-      setCustomers(prev => prev.map(c => 
-        c.id === invoice.customerId ? { ...c, balance: c.balance + remaining } : c
-      ));
+      const custRef = doc(db, 'users', uid, 'customers', invoice.customerId);
+      const currentCust = customers.find(c => c.id === invoice.customerId);
+      if (currentCust) {
+        batch.update(custRef, { balance: currentCust.balance + remaining, updatedAt: Date.now() });
+      }
     }
+    
+    await batch.commit();
   };
 
-  const updateInvoice = (id: string, invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => {
+  const updateInvoice = async (id: string, invoice: Omit<Invoice, 'id' | 'invoiceNumber'>) => {
     const existingInvoice = invoices.find(inv => inv.id === id);
     if (!existingInvoice) return;
 
-    setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, ...invoice } : inv));
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', uid, 'invoices', id), { ...invoice, ownerId: uid, updatedAt: Date.now() }, { merge: true });
 
-    // Revert old inventory and apply new
-    setInventory(prev => prev.map(item => {
-      const oldSoldItem = existingInvoice.items.find(i => i.itemId === item.id);
-      const newSoldItem = invoice.items.find(i => i.itemId === item.id);
-      
-      let newQuantity = item.quantity;
-      if (oldSoldItem) newQuantity += oldSoldItem.quantity; // revert old
-      if (newSoldItem) newQuantity -= newSoldItem.quantity; // apply new
-      
-      return { ...item, quantity: newQuantity };
-    }));
+    for (const existingItem of existingInvoice.items) {
+      const invRef = doc(db, 'users', uid, 'inventory', existingItem.itemId);
+      const currentItem = inventory.find(i => i.id === existingItem.itemId);
+      if (currentItem) {
+        const newItem = invoice.items.find(i => i.itemId === existingItem.itemId);
+        let newQuantity = currentItem.quantity + existingItem.quantity;
+        if (newItem) newQuantity -= newItem.quantity;
+        batch.update(invRef, { quantity: newQuantity, updatedAt: Date.now() });
+      }
+    }
+    for (const newItem of invoice.items) {
+      if (!existingInvoice.items.find(i => i.itemId === newItem.itemId)) {
+        const invRef = doc(db, 'users', uid, 'inventory', newItem.itemId);
+        const currentItem = inventory.find(i => i.id === newItem.itemId);
+        if (currentItem) {
+          batch.update(invRef, { quantity: currentItem.quantity - newItem.quantity, updatedAt: Date.now() });
+        }
+      }
+    }
 
-    // Revert old customer balance and apply new
     const oldRemaining = existingInvoice.total - existingInvoice.paid;
     const newRemaining = invoice.total - invoice.paid;
     
-    setCustomers(prev => prev.map(c => {
-      if (c.id === existingInvoice.customerId && c.id === invoice.customerId) {
-        return { ...c, balance: c.balance - oldRemaining + newRemaining };
-      } else if (c.id === existingInvoice.customerId) {
-        return { ...c, balance: c.balance - oldRemaining };
-      } else if (c.id === invoice.customerId) {
-        return { ...c, balance: c.balance + newRemaining };
-      }
-      return c;
-    }));
+    if (existingInvoice.customerId === invoice.customerId) {
+        const custRef = doc(db, 'users', uid, 'customers', existingInvoice.customerId);
+        const cust = customers.find(c => c.id === existingInvoice.customerId);
+        if (cust) batch.update(custRef, { balance: cust.balance - oldRemaining + newRemaining, updatedAt: Date.now() });
+    } else {
+        const oldCustRef = doc(db, 'users', uid, 'customers', existingInvoice.customerId);
+        const oldCust = customers.find(c => c.id === existingInvoice.customerId);
+        if (oldCust) batch.update(oldCustRef, { balance: oldCust.balance - oldRemaining, updatedAt: Date.now() });
+
+        const newCustRef = doc(db, 'users', uid, 'customers', invoice.customerId);
+        const newCust = customers.find(c => c.id === invoice.customerId);
+        if (newCust) batch.update(newCustRef, { balance: newCust.balance + newRemaining, updatedAt: Date.now() });
+    }
+
+    await batch.commit();
   };
 
-  const deleteInvoice = (id: string) => {
+  const deleteInvoice = async (id: string) => {
     const invToDelete = invoices.find(inv => inv.id === id);
     if (!invToDelete) return;
 
-    setInvoices(prev => prev.filter(inv => inv.id !== id));
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', uid, 'invoices', id));
 
-    // Revert inventory
-    setInventory(prev => prev.map(item => {
-      const soldItem = invToDelete.items.find(i => i.itemId === item.id);
-      return soldItem ? { ...item, quantity: item.quantity + soldItem.quantity } : item;
-    }));
+    for (const soldItem of invToDelete.items) {
+      const invRef = doc(db, 'users', uid, 'inventory', soldItem.itemId);
+      const currentItem = inventory.find(i => i.id === soldItem.itemId);
+      if (currentItem) {
+        batch.update(invRef, { quantity: currentItem.quantity + soldItem.quantity, updatedAt: Date.now() });
+      }
+    }
 
-    // Revert customer balance
     const remaining = invToDelete.total - invToDelete.paid;
     if (remaining !== 0) {
-      setCustomers(prev => prev.map(c => 
-        c.id === invToDelete.customerId ? { ...c, balance: c.balance - remaining } : c
-      ));
+      const custRef = doc(db, 'users', uid, 'customers', invToDelete.customerId);
+      const cust = customers.find(c => c.id === invToDelete.customerId);
+      if (cust) batch.update(custRef, { balance: cust.balance - remaining, updatedAt: Date.now() });
     }
+
+    await batch.commit();
   };
 
-  const createPurchase = (purchase: Omit<PurchaseOrder, 'id'>) => {
-    const newPurchase = { ...purchase, id: crypto.randomUUID() };
-    setPurchases(prev => [newPurchase, ...prev]);
+  const createPurchase = async (purchase: Omit<PurchaseOrder, 'id'>) => {
+    const newRef = doc(collection(db, 'users', uid, 'purchases'));
+    const batch = writeBatch(db);
     
-    // Update Inventory
-    setInventory(prev => prev.map(item => {
-      const purItem = purchase.items.find(i => i.itemId === item.id);
-      return purItem ? { ...item, quantity: item.quantity + purItem.quantity } : item;
-    }));
+    batch.set(newRef, { ...purchase, ownerId: uid, createdAt: Date.now(), updatedAt: Date.now() });
+    
+    for (const purItem of purchase.items) {
+      const invRef = doc(db, 'users', uid, 'inventory', purItem.itemId);
+      const currentItem = inventory.find(i => i.id === purItem.itemId);
+      if (currentItem) {
+        batch.update(invRef, { quantity: currentItem.quantity + purItem.quantity, updatedAt: Date.now() });
+      }
+    }
 
-    // Update Supplier Balance
     const remaining = purchase.total - purchase.paid;
     if (remaining !== 0) {
-      setSuppliers(prev => prev.map(s => 
-        s.id === purchase.supplierId ? { ...s, balance: s.balance + remaining } : s
-      ));
+      const supRef = doc(db, 'users', uid, 'suppliers', purchase.supplierId);
+      const sup = suppliers.find(s => s.id === purchase.supplierId);
+      if (sup) {
+        batch.update(supRef, { balance: sup.balance + remaining, updatedAt: Date.now() });
+      }
     }
+    
+    await batch.commit();
   };
 
-  const recordCustomerPayment = (customerId: string, amount: number) => {
+  const recordCustomerPayment = async (customerId: string, amount: number) => {
     if (amount <= 0) return;
-    
-    // Record it as an empty invoice "Payment"
     const invoiceNumber = `PAY-${1000 + invoices.length + 1}`;
-    const newInvoice = {
-      id: crypto.randomUUID(),
+    const newRef = doc(collection(db, 'users', uid, 'invoices'));
+    const batch = writeBatch(db);
+    
+    batch.set(newRef, {
+      ownerId: uid,
       invoiceNumber,
       date: new Date().toISOString(),
       customerId,
       items: [],
       total: 0,
-      paid: amount
-    };
-    
-    setInvoices(prev => [newInvoice, ...prev]);
+      paid: amount,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
 
-    // Update Customer Balance (remaining = total - paid = 0 - amount = -amount)
-    setCustomers(prev => prev.map(c => 
-      c.id === customerId ? { ...c, balance: c.balance - amount } : c
-    ));
+    const custRef = doc(db, 'users', uid, 'customers', customerId);
+    const cust = customers.find(c => c.id === customerId);
+    if (cust) {
+      batch.update(custRef, { balance: cust.balance - amount, updatedAt: Date.now() });
+    }
+
+    await batch.commit();
   };
 
-  const recordSupplierPayment = (supplierId: string, amount: number) => {
+  const recordSupplierPayment = async (supplierId: string, amount: number) => {
     if (amount <= 0) return;
+    const newRef = doc(collection(db, 'users', uid, 'purchases'));
+    const batch = writeBatch(db);
     
-    // Record it as an empty purchase "Payment"
-    const newPurchase = {
-      id: crypto.randomUUID(),
+    batch.set(newRef, {
+      ownerId: uid,
       date: new Date().toISOString(),
       supplierId,
       items: [],
       total: 0,
-      paid: amount
-    };
-    
-    setPurchases(prev => [newPurchase, ...prev]);
+      paid: amount,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
 
-    // Update Supplier Balance
-    setSuppliers(prev => prev.map(s => 
-      s.id === supplierId ? { ...s, balance: s.balance - amount } : s
-    ));
+    const supRef = doc(db, 'users', uid, 'suppliers', supplierId);
+    const sup = suppliers.find(s => s.id === supplierId);
+    if (sup) {
+      batch.update(supRef, { balance: sup.balance - amount, updatedAt: Date.now() });
+    }
+
+    await batch.commit();
   };
 
-  const markAllNotificationsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllNotificationsRead = async () => {
+    const batch = writeBatch(db);
+    let updated = 0;
+    notifications.forEach(n => {
+      if (!n.read && updated < 500) {
+         batch.update(doc(db, 'users', uid, 'notifications', n.id), { read: true, updatedAt: Date.now() });
+         updated++;
+      }
+    });
+    if (updated > 0) await batch.commit();
   };
 
-  const updateBusinessProfile = (profile: BusinessProfile) => {
-    setBusinessProfile(profile);
+  const updateBusinessProfile = async (profile: BusinessProfile) => {
+    await setDoc(doc(db, 'users', uid, 'profile', 'businessProfile'), { ...profile, ownerId: uid, updatedAt: Date.now() }, { merge: true });
   };
 
   return (
