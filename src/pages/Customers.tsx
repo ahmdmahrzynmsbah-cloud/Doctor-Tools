@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Users as UsersIcon, X, History, User, Banknote, Edit2, Trash2, Printer, MessageCircle } from 'lucide-react';
+import { Plus, Search, Users as UsersIcon, X, History, User, Banknote, Edit2, Trash2, Printer, MessageCircle, Share2, Loader2 } from 'lucide-react';
 import { useAppData, Customer } from '@/src/context/AppDataContext';
+import html2canvas from 'html2canvas';
 
 export default function Customers() {
   const { customers, invoices, inventory, addCustomer, updateCustomer, deleteCustomer, recordCustomerPayment } = useAppData();
@@ -12,6 +13,7 @@ export default function Customers() {
   
   const [paymentCustomer, setPaymentCustomer] = useState<Customer | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   
   const [newCustomer, setNewCustomer] = useState({
     name: '', phone: '', balance: 0
@@ -123,6 +125,99 @@ export default function Customers() {
 
   const handlePrintStatement = () => {
     window.print();
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!selectedCustomer) return;
+    
+    // Check if phone number is available
+    if (!selectedCustomer.phone) {
+      alert("العميل ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      const element = document.getElementById('statement-printable-area');
+      if (!element) return;
+      
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: '#ffffff'
+      });
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsGeneratingImage(false);
+          return;
+        }
+        
+        try {
+          const file = new File([blob], `statement_${selectedCustomer.name}.png`, { type: 'image/png' });
+          const textMsg = `مرحباً بك،\nمرفق كشف حساب تفصيلي خاص بك.`;
+          
+          let phone = selectedCustomer.phone;
+          if (phone.startsWith('0')) {
+              phone = '2' + phone.substring(1);
+          } else if (!phone.startsWith('2')) {
+              phone = '2' + phone;
+          }
+
+          // 1. Try Native Mobile/Desktop Share First
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: `كشف حساب - ${selectedCustomer.name}`,
+                text: textMsg
+              });
+              // Success! 
+              return;
+            } catch (shareError: any) {
+              // Ignore abort abort errors if user closed share sheet manually
+              if (shareError.name !== "AbortError") {
+                console.log('Share failed', shareError);
+              } else {
+                return;
+              }
+            }
+          }
+
+          // 2. Fallback: Try to use Clipboard for Desktop Computers
+          let isCopied = false;
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            isCopied = true;
+          } catch (clipboardError) {
+            console.log('Clipboard write failed', clipboardError);
+          }
+
+          if (isCopied) {
+            alert('تم نسخ صورة الكشف بنجاح! 📋\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء عمل "لصق" (Paste) لإرسال الصورة مباشرةً للعميل.\n- اختصار اللصق (Ctrl+V) أو (Cmd+V).');
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          } else {
+            // 3. Ultimate Fallback: Download file and open WA
+            alert('تم تصدير وتحميل صورة الكشف 📥\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء إرفاق الصورة التي تم تحميلها للتو داخل المحادثة.');
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `كشف_حساب_${selectedCustomer.name}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          }
+        } catch (error) {
+          console.error("Error sharing:", error);
+        } finally {
+          setIsGeneratingImage(false);
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error(err);
+      setIsGeneratingImage(false);
+    }
   };
 
   return (
@@ -279,6 +374,14 @@ export default function Customers() {
                 كشف حساب عميل
               </h3>
               <div className="flex items-center gap-3">
+                 <button 
+                   onClick={handleShareWhatsApp} 
+                   disabled={isGeneratingImage || !selectedCustomer.phone}
+                   className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#16A34A] text-white rounded-lg font-bold text-xs hover:bg-[#15803D] transition-colors border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                    {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                    مشاركة {selectedCustomer.phone ? 'واتساب' : '(لا يوجد رقم)'}
+                 </button>
                  <button onClick={handlePrintStatement} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg font-bold text-xs hover:bg-[#1D4ED8] transition-colors border-none cursor-pointer">
                     <Printer className="w-4 h-4" />
                     طباعة
@@ -289,7 +392,7 @@ export default function Customers() {
               </div>
             </div>
             
-            <div className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2">
+            <div id="statement-printable-area" className="p-6 overflow-y-auto space-y-6 print:overflow-visible print:p-2 bg-white">
               <div className="text-center hidden print:block mb-6 pt-4 border-b pb-4">
                 <h2 className="text-2xl font-bold text-[#1E293B]">كشف حساب عميل</h2>
                 <div className="text-sm text-[#475569] mt-1 space-x-4 space-x-reverse">

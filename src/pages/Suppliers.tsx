@@ -59,10 +59,19 @@ export default function Suppliers() {
       
       currentBalance += (credit - debit);
 
+      let purchaseDetails = '';
+      if (!isPayment && inv.items.length > 0) {
+        const itemNames = inv.items.map(item => {
+          const inventoryItem = inventory.find(i => i.id === item.itemId);
+          return inventoryItem ? `${inventoryItem.name} (${item.quantity})` : `صنف محذوف (${item.quantity})`;
+        });
+        purchaseDetails = ` - أصناف: ${itemNames.join('، ')}`;
+      }
+
       entries.push({
         id: inv.id,
         date: new Date(inv.date).toLocaleDateString('ar-EG'),
-        description: isPayment ? `سند صرف للمورد` : `توريد ونزول بضاعة`,
+        description: isPayment ? `سند صرف للمورد` : `توريد ونزول بضاعة${purchaseDetails}`,
         debit: debit,
         credit: credit,
         balance: currentBalance,
@@ -71,7 +80,7 @@ export default function Suppliers() {
     });
 
     return entries;
-  }, [selectedSupplierHistory, purchases]);
+  }, [selectedSupplierHistory, purchases, inventory]);
 
   const handlePrintStatement = () => {
     window.print();
