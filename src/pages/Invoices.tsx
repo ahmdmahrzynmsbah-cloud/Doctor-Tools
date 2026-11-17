@@ -13,7 +13,6 @@ export default function Invoices() {
   
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<string | null>(null);
-  const [autoShareInvoiceId, setAutoShareInvoiceId] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
 
   // Form State
@@ -60,12 +59,27 @@ export default function Invoices() {
     }
   };
 
-  const handleShareWhatsApp = async () => {
-    if (!printRef.current || !printingInvoice || !printingCustomer) return;
+  const handleShareWhatsApp = async (e?: React.MouseEvent) => {
+    let waWindow = (window as any)._waWindow;
+    (window as any)._waWindow = null;
+
+    if (!printRef.current || !printingInvoice || !printingCustomer) {
+      if (waWindow) waWindow.close();
+      return;
+    }
     
     if (!printingCustomer.phone) {
+      if (waWindow) waWindow.close();
       alert("العميل ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
       return;
+    }
+
+    // 1. Open popup immediately to preserve user gesture
+    if (!waWindow) {
+        waWindow = window.open('about:blank', '_blank');
+        if (waWindow) {
+          waWindow.document.write('<html dir="rtl"><body style="font-family: system-ui; text-align: center; padding-top: 50px;"><h3>جاري تجهيز الفاتورة كصورة لفتح واتساب...</h3><p>برجاء الانتظار لثواني معدودة</p></body></html>');
+        }
     }
 
     try {
@@ -79,12 +93,12 @@ export default function Invoices() {
       
       canvas.toBlob(async (blob) => {
         if (!blob) {
+          if (waWindow) waWindow.close();
           setIsGeneratingImage(false);
           return;
         }
         
         try {
-          const file = new File([blob], `invoice_${printingInvoice.invoiceNumber}.png`, { type: 'image/png' });
           const textMsg = `مرحباً بك،\nمرفق فاتورة برقم: ${printingInvoice.invoiceNumber}.`;
           
           let phone = printingCustomer.phone;
@@ -94,66 +108,53 @@ export default function Invoices() {
               phone = '2' + phone;
           }
 
-          // 1. Try Native Mobile/Desktop Share First
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`;
+          
+          // Try clipboard (might fail due to async delay exceeding user gesture)
+          let copied = false;
+          if (navigator.clipboard && window.ClipboardItem) {
             try {
-              await navigator.share({
-                files: [file],
-                title: `فاتورة - ${printingInvoice.invoiceNumber}`,
-                text: textMsg
-              });
-              return;
-            } catch (shareError: any) {
-              if (shareError.name !== "AbortError") {
-                console.log('Share failed', shareError);
-              } else {
-                return;
-              }
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              copied = true;
+            } catch (err) {
+              console.log('Clipboard write failed, will rely on download');
             }
           }
 
-          // 2. Fallback: Try to use Clipboard for Desktop Computers
-          let isCopied = false;
-          try {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
-            isCopied = true;
-          } catch (clipboardError) {
-            console.log('Clipboard write failed', clipboardError);
+          // Always download as fallback
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `invoice_${printingInvoice.invoiceNumber}.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+          
+          if (waWindow) {
+            waWindow.location.href = waUrl;
+          } else {
+            window.open(waUrl, '_blank');
           }
 
-          if (isCopied) {
-            alert('تم نسخ صورة الفاتورة بنجاح! 📋\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء عمل "لصق" (Paste) لإرسال الصورة مباشرةً للعميل.\n- اختصار اللصق (Ctrl+V) أو (Cmd+V).');
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          // Alert after everything is triggered
+          if (copied) {
+              alert('تم نسخ الفاتورة كصورة وتحميلها 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك عمل "لصق" (Paste) لإرسال الصورة للعميل مباشرةً.');
           } else {
-            // 3. Ultimate Fallback: Download file and open WA
-            alert('تم تصدير وتحميل صورة الفاتورة 📥\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء إرفاق الصورة التي تم تحميلها للتو داخل المحادثة.');
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `invoice_${printingInvoice.invoiceNumber}.png`;
-            a.click();
-            URL.revokeObjectURL(url);
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+              alert('تم تحميل الفاتورة كصورة 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك إرفاق الصورة المحملة داخل المحادثة للعميل.');
           }
+          
         } catch (error) {
           console.error("Error sharing:", error);
+          if (waWindow) waWindow.close();
         } finally {
           setIsGeneratingImage(false);
-          if (autoShareInvoiceId) {
-             setPrintingInvoiceId(null);
-             setAutoShareInvoiceId(null);
-          }
         }
       }, 'image/png');
     } catch (err) {
       console.error(err);
+      if (waWindow) waWindow.close();
       setIsGeneratingImage(false);
-      if (autoShareInvoiceId) {
-         setPrintingInvoiceId(null);
-         setAutoShareInvoiceId(null);
-      }
     }
   };
 
@@ -231,9 +232,6 @@ export default function Invoices() {
 
   useEffect(() => {
     if (printingInvoiceId) {
-      if (autoShareInvoiceId === printingInvoiceId) {
-        return; // Don't print if we're auto-sharing
-      }
       const handleAfterPrint = () => {
         setPrintingInvoiceId(null);
       };
@@ -248,17 +246,7 @@ export default function Invoices() {
         clearTimeout(timer);
       };
     }
-  }, [printingInvoiceId, autoShareInvoiceId]);
-
-  useEffect(() => {
-    if (autoShareInvoiceId && printingInvoiceId === autoShareInvoiceId) {
-      // Small delay to allow the DOM/images to fully render before sharing
-      const timer = setTimeout(async () => {
-        await handleShareWhatsApp();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [autoShareInvoiceId, printingInvoiceId]);
+  }, [printingInvoiceId]);
 
   const handleEditClick = (invoiceId: string) => {
     const inv = invoices.find(i => i.id === invoiceId);
@@ -394,7 +382,7 @@ export default function Invoices() {
   return (
     <>
       {printingInvoice && (
-        <div className={`fixed inset-0 z-50 overflow-y-auto print:bg-white print:p-0 ${autoShareInvoiceId ? 'opacity-0 pointer-events-none' : 'bg-[#F1F5F9]'}`}>
+      <div className={`fixed inset-0 z-50 overflow-y-auto print:bg-white print:p-0 bg-[#F1F5F9]`}>
           <div className="p-4 flex gap-4 justify-center border-b border-[#E2E8F0] print:hidden bg-white shadow-sm sticky top-0 z-10">
             <button 
               onClick={() => {
@@ -406,6 +394,7 @@ export default function Invoices() {
               طباعة الفاتورة
             </button>
             <button 
+              id="share-whatsapp-btn"
               onClick={handleShareWhatsApp}
               disabled={isGeneratingImage || !printingCustomer?.phone}
               className="px-6 py-2 bg-[#25D366] text-white rounded-lg font-bold hover:bg-[#1DA851] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -427,7 +416,7 @@ export default function Invoices() {
               عودة
             </button>
           </div>
-          <div className="p-8 flex justify-center print:p-0" ref={printRef}>
+          <div id="invoice-print-area" className="p-8 flex justify-center print:p-0" ref={printRef}>
             <InvoicePrint 
               invoice={printingInvoice} 
               customer={printingCustomer} 
@@ -778,13 +767,38 @@ export default function Invoices() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setAutoShareInvoiceId(inv.id);
+                                  
+                                  if (!customer?.phone) {
+                                    alert("العميل ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
+                                    return;
+                                  }
+                                  
+                                  const waWindow = window.open('about:blank', '_blank');
+                                  if (waWindow) {
+                                    waWindow.document.write('<html dir="rtl"><body style="font-family: system-ui; text-align: center; padding-top: 50px;"><h3>جاري تجهيز الفاتورة كصورة لفتح واتساب...</h3><p>برجاء الانتظار لثواني معدودة</p></body></html>');
+                                  }
+                                  (window as any)._waWindow = waWindow;
+                                  
                                   setPrintingInvoiceId(inv.id);
+                                  
+                                  let tries = 0;
+                                  const interval = setInterval(() => {
+                                      const btn = document.getElementById('share-whatsapp-btn');
+                                      const printArea = document.getElementById('invoice-print-area');
+                                      if (btn && printArea && !btn.hasAttribute('disabled')) {
+                                          clearInterval(interval);
+                                          btn.click();
+                                      } else if (tries > 50) {
+                                          clearInterval(interval);
+                                          if (waWindow) waWindow.close();
+                                      }
+                                      tries++;
+                                  }, 100);
                                 }}
                                 className="p-1.5 inline-flex items-center justify-center text-[#137333] bg-[#E6F4EA] border border-[#CEEAD6] rounded-md hover:bg-[#CEEAD6] transition-colors cursor-pointer"
-                                title="إرسال الفاتورة عبر واتساب"
+                                title="إرسال الفاتورة كصورة عبر واتساب"
                               >
-                                {isGeneratingImage && autoShareInvoiceId === inv.id ? (
+                                {isGeneratingImage && printingInvoiceId === inv.id ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                   <MessageCircle className="w-4 h-4" />

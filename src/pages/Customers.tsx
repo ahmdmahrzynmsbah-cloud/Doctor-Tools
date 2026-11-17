@@ -133,18 +133,37 @@ export default function Customers() {
   };
 
   const handleShareWhatsApp = async () => {
-    if (!selectedCustomer) return;
+    let waWindow = (window as any)._waWindow;
+    (window as any)._waWindow = null;
+    
+    if (!selectedCustomer) {
+      if (waWindow) waWindow.close();
+      return;
+    }
     
     // Check if phone number is available
     if (!selectedCustomer.phone) {
+      if (waWindow) waWindow.close();
       alert("العميل ليس لديه رقم هاتف مسجل للمراسلة عبر واتساب.");
       return;
+    }
+
+    // 1. Open popup immediately to preserve user gesture
+    if (!waWindow) {
+        waWindow = window.open('about:blank', '_blank');
+        if (waWindow) {
+          waWindow.document.write('<html dir="rtl"><body style="font-family: system-ui; text-align: center; padding-top: 50px;"><h3>جاري تجهيز كشف الحساب كصورة لفتح واتساب...</h3><p>برجاء الانتظار لثواني معدودة</p></body></html>');
+        }
     }
 
     try {
       setIsGeneratingImage(true);
       const element = document.getElementById('statement-printable-area');
-      if (!element) return;
+      if (!element) {
+        if (waWindow) waWindow.close();
+        setIsGeneratingImage(false);
+        return;
+      }
       
       // Temporarily change styles to capture the full scrolling content
       const originalOverflow = element.style.overflow;
@@ -185,12 +204,12 @@ export default function Customers() {
       
       canvas.toBlob(async (blob) => {
         if (!blob) {
+          if (waWindow) waWindow.close();
           setIsGeneratingImage(false);
           return;
         }
         
         try {
-          const file = new File([blob], `statement_${selectedCustomer.name}.png`, { type: 'image/png' });
           const textMsg = `مرحباً بك،\nمرفق كشف حساب تفصيلي خاص بك.`;
           
           let phone = selectedCustomer.phone;
@@ -200,59 +219,54 @@ export default function Customers() {
               phone = '2' + phone;
           }
 
-          // 1. Try Native Mobile/Desktop Share First
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`;
+
+          // Try clipboard first
+          let copied = false;
+          if (navigator.clipboard) {
             try {
-              await navigator.share({
-                files: [file],
-                title: `كشف حساب - ${selectedCustomer.name}`,
-                text: textMsg
-              });
-              // Success! 
-              return;
-            } catch (shareError: any) {
-              // Ignore abort abort errors if user closed share sheet manually
-              if (shareError.name !== "AbortError") {
-                console.log('Share failed', shareError);
-              } else {
-                return;
-              }
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              copied = true;
+            } catch (err) {
+              console.log('Clipboard write failed, falling back to download');
             }
           }
 
-          // 2. Fallback: Try to use Clipboard for Desktop Computers
-          let isCopied = false;
-          try {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
-            isCopied = true;
-          } catch (clipboardError) {
-            console.log('Clipboard write failed', clipboardError);
+          // Always download fallback
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `كشف_حساب_${selectedCustomer.name}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 100);
+          
+          if (waWindow) {
+            waWindow.location.href = waUrl;
+          } else {
+            window.open(waUrl, '_blank');
           }
 
-          if (isCopied) {
-            alert('تم نسخ صورة الكشف بنجاح! 📋\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء عمل "لصق" (Paste) لإرسال الصورة مباشرةً للعميل.\n- اختصار اللصق (Ctrl+V) أو (Cmd+V).');
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+          // Alert after everything is triggered
+          if (copied) {
+              alert('تم نسخ صورة الكشف وتحميلها 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك عمل "لصق" (Paste) لإرسال الصورة للعميل مباشرةً.');
           } else {
-            // 3. Ultimate Fallback: Download file and open WA
-            alert('تم تصدير وتحميل صورة الكشف 📥\n\n- سيتم فتح محادثة الواتساب الآن.\n- الرجاء إرفاق الصورة التي تم تحميلها للتو داخل المحادثة.');
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `كشف_حساب_${selectedCustomer.name}.png`;
-            a.click();
-            URL.revokeObjectURL(url);
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
+              alert('تم تحميل صورة الكشف 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك إرفاق الصورة المحملة داخل المحادثة للعميل.');
           }
+          
         } catch (error) {
           console.error("Error sharing:", error);
+          if (waWindow) waWindow.close();
         } finally {
           setIsGeneratingImage(false);
         }
       }, 'image/png');
     } catch (err) {
       console.error(err);
+      if (waWindow) waWindow.close();
       setIsGeneratingImage(false);
     }
   };

@@ -298,6 +298,16 @@ export default function Suppliers() {
       return;
     }
 
+    // 1. Open popup immediately to preserve user gesture
+    let waWindow = (window as any)._waWindow;
+    if (!waWindow) {
+        waWindow = window.open('about:blank', '_blank');
+        if (waWindow) {
+          waWindow.document.write('<html dir="rtl"><body style="font-family: system-ui; text-align: center; padding-top: 50px;"><h3>جاري تجهيز الفاتورة كصورة لفتح واتساب...</h3><p>برجاء الانتظار لثواني معدودة</p></body></html>');
+        }
+    }
+    (window as any)._waWindow = null;
+
     try {
       setIsGeneratingImage(true);
       const element = document.getElementById('purchase-invoice-printable-area');
@@ -340,19 +350,28 @@ export default function Suppliers() {
       
       canvas.toBlob(async (blob) => {
         if (!blob) {
+          if (waWindow) waWindow.close();
           setIsGeneratingImage(false);
           return;
         }
         
-        const file = new File([blob], `purchase_invoice_${printingPurchase.id}.png`, { type: 'image/png' });
-        
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: `فاتورة مشتريات رقم ${printingPurchase.id.slice(-6)}`,
-            text: `تفاصيل فاتورة المشتريات رقم ${printingPurchase.id.slice(-6)} الخاصة بك من ${businessProfile?.name || ''}`
-          });
-        } else {
+        try {
+          const textMsg = `مرفق تفاصيل فاتورة المشتريات رقم ${printingPurchase.id.slice(-6)}.`;
+          const waUrl = `https://wa.me/20${s.phone.replace(/^0+/, '')}?text=${encodeURIComponent(textMsg)}`;
+          
+          let copied = false;
+          if (navigator.clipboard && window.ClipboardItem) {
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              copied = true;
+            } catch (err) {
+              console.log('Clipboard write failed, falling back to download');
+            }
+          }
+          
+          // Always download fallback
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
@@ -362,13 +381,29 @@ export default function Suppliers() {
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(url), 100);
           
-          window.open(`https://wa.me/20${s.phone.replace(/^0+/, '')}?text=${encodeURIComponent(`مرفق تفاصيل فاتورة المشتريات رقم ${printingPurchase.id.slice(-6)}.`)}`, '_blank');
+          if (waWindow) {
+            waWindow.location.href = waUrl;
+          } else {
+            window.open(waUrl, '_blank');
+          }
+
+          // Alert after everything is triggered
+          if (copied) {
+              alert('تم نسخ الفاتورة كصورة وتحميلها 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك عمل "لصق" (Paste) لإرسال الصورة للمورد مباشرةً.');
+          } else {
+              alert('تم تحميل الفاتورة كصورة 📥\n\n- سيتم فتح الواتساب الآن.\n- يمكنك إرفاق الصورة المحملة داخل المحادثة للمورد.');
+          }
+        } catch (err) {
+          console.error(err);
+          if (waWindow) waWindow.close();
+        } finally {
+          setIsGeneratingImage(false);
         }
         
-        setIsGeneratingImage(false);
       }, 'image/png', 1.0);
     } catch (error) {
       console.error('Error generating or sharing image:', error);
+      if (waWindow) waWindow.close();
       setIsGeneratingImage(false);
       alert('حدث خطأ أثناء محاولة المشاركة عبر واتساب.');
     }
@@ -660,16 +695,17 @@ export default function Suppliers() {
                                     return;
                                   }
                                   
-                                  // Open the invoice printing modal
-                                  setPrintingPurchase(row.rawPurchase);
-                                  
-                                  // Wait for the modal to render, then click its sharing button
-                                  setTimeout(() => {
-                                    document.getElementById('share-whatsapp-btn')?.click();
-                                  }, 200);
+                                  let phone = s.phone;
+                                  if (phone.startsWith('0')) {
+                                    phone = '2' + phone.substring(1);
+                                  } else if (!phone.startsWith('2')) {
+                                    phone = '2' + phone;
+                                  }
+                                  const textMsg = `مرحباً،\nمرفق تفاصيل فاتورة المشتريات رقم: ${row.rawPurchase.id.slice(-6).toUpperCase()}\nبتاريخ: ${new Date(row.rawPurchase.date).toLocaleDateString('ar-EG')}\nالإجمالي: ${row.rawPurchase.total.toLocaleString()} ج.م\nالمدفوع: ${row.rawPurchase.paid.toLocaleString()} ج.م\nالمتبقي: ${(row.rawPurchase.total - row.rawPurchase.paid).toLocaleString()} ج.م`;
+                                  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(textMsg)}`, '_blank');
                                 }}
                                 className="inline-block text-[#16A34A] hover:text-[#15803D] transition-colors p-1 cursor-pointer bg-transparent border-none"
-                                title="مشاركة الفاتورة عبر واتساب كصورة"
+                                title="مشاركة الفاتورة عبر واتساب"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto"><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21"/><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1Z"/><path d="M14 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1Z"/><path d="M9.5 13.5c.5 1 1.5 1 2.5 1s2-.5 2.5-1"/></svg>
                               </button>
